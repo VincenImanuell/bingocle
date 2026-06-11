@@ -46,14 +46,51 @@ Smart contracts  : EventFactory · WordPool · WordMarket · OracleRegistry
 ├── docs/
 │   ├── Bingocle_EN.md   # Full project spec (English)
 │   ├── Bingocle_ID.md   # Full project spec (Bahasa Indonesia)
-│   └── project.md       # Master / brainstorm doc
-├── contracts/           # (planned) Solidity contracts + Foundry/Hardhat
-├── agent/               # (planned) AI oracle + curator + odds service
-├── web/                 # (planned) Next.js web app
-├── capability/          # (planned) Minds Bazaar Capability + /agent-guide
+│   ├── project.md       # Master / brainstorm doc
+│   └── SUBMISSION.md    # Mantle Turing Test 2026 submission readiness checklist
+├── contracts/           # Solidity (Foundry) — 7 contracts + lib + tests + deploy script
+├── agent/               # Node/TS — AI Curator + Odds Engine + Validation Oracle + HTTP API
+├── capability/          # Node/TS — Telegram Capability + /agent-guide (Part B surface)
+├── frontend/            # Next.js web app (landing + playable demo)
 ├── LICENSE
 └── README.md
 ```
+
+## Quickstart
+
+```bash
+# 1. Contracts — build, test, deploy to Mantle Sepolia
+cd contracts
+forge build && forge test
+PRIVATE_KEY=0x... AGENT_ADDRESS=0x... \
+  forge script script/Deploy.s.sol --rpc-url mantle_sepolia --broadcast --verify
+
+# 2. Agent service — AI Curator / Odds / Oracle + organizer API
+cd ../agent
+cp .env.example .env   # ANTHROPIC_API_KEY, AGENT_PRIVATE_KEY, deployed addresses
+npm install && npm run start
+
+# 3. Capability — the Telegram chat surface
+cd ../capability
+cp .env.example .env   # TELEGRAM_BOT_TOKEN, AGENT_API_URL, DEMO_WALLET_MNEMONIC, addresses
+npm install && npm run start
+```
+
+The AI agent wallet (`AGENT_ADDRESS`) is registered as the ERC-8004 oracle and the WordPool curator by the deploy script. Read [`capability/AGENT-GUIDE.md`](capability/AGENT-GUIDE.md) to operate the game from chat.
+
+## Deployed addresses (Mantle Sepolia)
+
+> Filled after `forge script Deploy` — paste the console output here for the submission.
+
+| Contract | Address |
+|---|---|
+| EventFactory | `0x…` |
+| WordPool | `0x…` |
+| WordMarket | `0x…` |
+| OracleRegistry | `0x…` |
+| BingoCardNFT | `0x…` |
+| RewardVault | `0x…` |
+| AgentIdentity (ERC-8004) | `0x…` |
 
 ## Documentation
 
@@ -64,13 +101,14 @@ The complete design — features, architecture, judging-criteria alignment, MVP 
 
 ## Roadmap (hackathon MVP)
 
-- [ ] Bingocle Capability published to the Minds Bazaar (Telegram + email, `/agent-guide`)
-- [ ] Core contracts on Mantle Sepolia (verified on Explorer)
-- [ ] AI Word Curator + Odds Engine (Claude API)
-- [ ] AI Validation Oracle (Whisper STT + LLM → on-chain commit)
-- [ ] Web app: join → submit → buy → live marking → claim
-- [ ] ERC-8004 identity NFT for the oracle agent
-- [ ] Demo video + deployed addresses + public frontend
+- [x] Core contracts (7) — `EventFactory · WordPool · WordMarket · OracleRegistry · BingoCardNFT · RewardVault · AgentIdentity` — compiling, unit-tested (Foundry)
+- [x] ERC-8004 identity NFT for the oracle agent (soulbound, accruing reputation)
+- [x] AI Word Curator + Odds Engine (Claude `claude-opus-4-8`)
+- [x] AI Validation Oracle (LLM matching → on-chain commit; recorded-transcript demo path)
+- [x] Bingocle Capability over Telegram + `/agent-guide` (per-user demo wallets)
+- [ ] Deploy + verify on Mantle Sepolia Explorer (run `Deploy.s.sol`, paste addresses above)
+- [ ] Publish the Capability to the Minds Bazaar; capture the build conversation
+- [ ] Web app wiring to live contracts (frontend) + demo video
 
 ## License
 

@@ -45,3 +45,7 @@ Thumbs.db
 *.tsbuildinfo
 .cache/
 tmp/
+
+# Agent runtime store
+.data/
+agent/.data/

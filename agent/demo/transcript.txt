@@ -1,0 +1,5 @@
+Alright everyone, thank you for being here at the Mantle builder demo day. So when we first plugged the model in, the AI started flagging duplicate words on its own, which honestly surprised the whole team.
+None of this ships without the community testing every single build, and our community has been incredible this whole hackathon. We are targeting mainnet before the end of the quarter, and everything you see today already runs on the testnet.
+Let me switch over to the live demo real quick. You sign every action straight from your wallet, no seed phrase, nothing. Settlement happens on Mantle, so the gas fee stays near zero even when thousands of people are buying positions at once.
+The AI oracle writes its verdict straight on-chain, and every verdict is recorded on the chain permanently. We closed our first funding round late last month, and the public launch is penciled in for early July.
+Every builder in this room has shipped something real this week. The token simply routes value back to the players, and the reward pool grows as more people join.

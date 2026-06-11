@@ -1,0 +1,28 @@
+{
+  "name": "bingocle-agent",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Bingocle AI agent service — Word Curator, Odds Engine, and Validation Oracle that commit to Mantle.",
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "start": "tsx src/server.ts",
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "curate": "tsx src/cli/curate.ts",
+    "oracle": "tsx src/cli/oracle.ts"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.69.0",
+    "dotenv": "^16.4.7",
+    "ethers": "^6.13.4",
+    "express": "^4.21.2",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.21",
+    "@types/node": "^20.17.10",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
+}

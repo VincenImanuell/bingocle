@@ -1,0 +1,24 @@
+[profile.default]
+src = "src"
+out = "out"
+libs = ["lib"]
+test = "test"
+script = "script"
+solc = "0.8.28"
+optimizer = true
+optimizer_runs = 200
+evm_version = "cancun"
+remappings = [
+    "@openzeppelin/contracts/=lib/openzeppelin-contracts/contracts/",
+    "forge-std/=lib/forge-std/src/",
+]
+fs_permissions = [{ access = "read", path = "./" }]
+
+# Mantle networks. RPC + verifier set via env; see .env.example.
+[rpc_endpoints]
+mantle_sepolia = "${MANTLE_SEPOLIA_RPC_URL}"
+mantle = "${MANTLE_RPC_URL}"
+
+[etherscan]
+mantle_sepolia = { key = "${MANTLE_API_KEY}", url = "https://api-sepolia.mantlescan.xyz/api", chain = 5003 }
+mantle = { key = "${MANTLE_API_KEY}", url = "https://api.mantlescan.xyz/api", chain = 5000 }

@@ -1,0 +1,26 @@
+{
+  "name": "Bingocle",
+  "publicId": "bingocle",
+  "version": "0.1.0",
+  "tagline": "Trade the words before they hit the card.",
+  "description": "A community bingo prediction market refereed by an AI oracle on Mantle. Predict the words a speaker will say live; an AI Validation Oracle listens, calls the bingo, and settles on-chain. Play entirely by chatting — no terminal, no seed phrase.",
+  "channels": ["telegram", "email"],
+  "activation": {
+    "telegram": "Send /start to the Bingocle bot.",
+    "email": "Email the capability with one instruction per line (same verbs as Telegram)."
+  },
+  "track": "Consumer & Viral DApps (Animoca Minds)",
+  "chain": { "name": "Mantle", "network": "Sepolia testnet", "chainId": 5003 },
+  "agentGuide": "AGENT-GUIDE.md",
+  "commands": [
+    { "name": "/wallet", "summary": "Show your embedded demo wallet + balance" },
+    { "name": "/create", "args": "<theme>", "summary": "Organizer: create an event on-chain" },
+    { "name": "/submit", "args": "<id> word1, word2, word3", "summary": "Predict up to 3 words; first submitter founds the word" },
+    { "name": "/finalize", "args": "<id> <theme>", "summary": "Organizer: AI-curate the pool + odds and commit on-chain" },
+    { "name": "/pool", "args": "<id>", "summary": "List curated words, odds, and current phase" },
+    { "name": "/card", "args": "<id>", "summary": "Mint and view your 5x5 bingo card with live marks" },
+    { "name": "/buy", "args": "<id> <word> <amount>", "summary": "Stake MNT on a word at the running odds" },
+    { "name": "/validate", "args": "<id> [transcript]", "summary": "Organizer: run the AI oracle and commit verdicts on-chain" },
+    { "name": "/claim", "args": "<id>", "summary": "Collect prediction payouts, bingo bonuses, and founder seeds" }
+  ]
+}
