@@ -60,6 +60,10 @@ contract BingocleTest is Test {
     // --- helpers ---
 
     function _createEvent() internal returns (uint256 id) {
+        return _createEventToken(address(0));
+    }
+
+    function _createEventToken(address token) internal returns (uint256 id) {
         BingocleTypes.BonusTiers memory bonus = BingocleTypes.BonusTiers({
             line: 5 ether,
             diagonal: 7 ether,
@@ -68,7 +72,7 @@ contract BingocleTest is Test {
         });
         vm.prank(organizer);
         id = factory.createEvent(
-            address(0),
+            token,
             t0 + 100, // submissionEnd
             t0 + 200, // founderEnd
             t0 + 300, // marketLock
@@ -244,5 +248,146 @@ contract BingocleTest is Test {
         assertFalse(BingoLib.isFull(marked));
         // full card
         assertTrue(BingoLib.isFull(0x1FFFFFF));
+    }
+
+    function test_DisputeReversesVerdict() public {
+        uint256 id = _createEvent();
+        _commitPool(id);
+        vm.warp(t0 + 350); // Live
+        vm.prank(oracleOp);
+        oracle.commitValidation(id, 0, 9700, "said it");
+        assertTrue(oracle.isValidated(id, 0));
+        assertEq(oracle.validatedCount(id), 1);
+
+        vm.warp(t0 + 450); // Dispute
+        oracle.raiseDispute(id, 0);
+        // organizer upholds the dispute -> verdict reversed
+        vm.prank(organizer);
+        oracle.resolveDispute(id, 0, true);
+        assertFalse(oracle.isValidated(id, 0));
+        assertEq(oracle.validatedCount(id), 0);
+        (,,,, uint256 agentId) = oracle.verdicts(id, 0);
+        (,, uint64 disputesUpheld) = identity.reputation(agentId);
+        assertEq(disputesUpheld, 1);
+    }
+
+    function test_CancelRefunds() public {
+        uint256 id = _createEvent();
+        // fund the reward pool, then cancel
+        vm.prank(organizer);
+        vault.fund{value: 20 ether}(id, 20 ether);
+        _commitPool(id);
+
+        vm.warp(t0 + 250); // Market
+        vm.prank(alice);
+        market.buy{value: 8 ether}(id, 2, 8 ether);
+
+        // organizer cancels (before eventEnd)
+        vm.prank(organizer);
+        factory.cancel(id);
+        assertEq(uint256(factory.phaseOf(id)), uint256(BingocleTypes.Phase.Cancelled));
+
+        // alice refunds her stake; organizer reclaims the reward pool
+        uint256 aBefore = alice.balance;
+        vm.prank(alice);
+        market.refund(id);
+        assertEq(alice.balance - aBefore, 8 ether);
+
+        uint256 oBefore = organizer.balance;
+        vm.prank(organizer);
+        vault.withdrawOnCancel(id);
+        assertEq(organizer.balance - oBefore, 20 ether);
+    }
+
+    function test_FounderWindowGatesNonFounders() public {
+        uint256 id = _createEvent();
+        _commitPool(id);
+        vm.warp(t0 + 150); // Founder window
+        // bob is not the founder of word 0 -> cannot buy yet
+        vm.prank(bob);
+        vm.expectRevert(WordMarket.BadPhase.selector);
+        market.buy{value: 1 ether}(id, 0, 1 ether);
+        // alice (founder of word 0) can
+        vm.prank(alice);
+        market.buy{value: 1 ether}(id, 0, 1 ether);
+        assertEq(market.wordPoolTotal(id, 0), 1 ether);
+    }
+
+    function test_FundRejectedOnceLive() public {
+        uint256 id = _createEvent();
+        _commitPool(id);
+        vm.warp(t0 + 350); // Live
+        vm.prank(organizer);
+        vm.expectRevert(RewardVault.AfterSettlement.selector);
+        vault.fund{value: 1 ether}(id, 1 ether);
+    }
+
+    function test_ERC20FullPath() public {
+        MockERC20 token = new MockERC20();
+        token.mint(organizer, 1000 ether);
+        token.mint(alice, 1000 ether);
+        token.mint(bob, 1000 ether);
+
+        uint256 id = _createEventToken(address(token));
+
+        // organizer funds the reward pool in ERC20
+        vm.startPrank(organizer);
+        token.approve(address(vault), 60 ether);
+        vault.fund(id, 60 ether);
+        vm.stopPrank();
+
+        _commitPool(id);
+
+        vm.warp(t0 + 250); // Market
+        vm.startPrank(alice);
+        token.approve(address(market), 10 ether);
+        market.buy(id, 0, 10 ether); // winner; no msg.value for ERC20
+        vm.stopPrank();
+        vm.startPrank(bob);
+        token.approve(address(market), 10 ether);
+        market.buy(id, 1, 10 ether); // loser, funds the winner's mult
+        vm.stopPrank();
+        assertEq(market.wordPoolTotal(id, 0), 10 ether);
+
+        vm.warp(t0 + 350); // Live
+        vm.prank(oracleOp);
+        oracle.commitValidation(id, 0, 9000, "erc20 word");
+
+        vm.warp(t0 + 550); // Settled — market holds 20, owes 20 (scale 1)
+        uint256 before = token.balanceOf(alice);
+        vm.prank(alice);
+        market.claim(id); // stake 10 * mult 2x = 20 ether
+        assertEq(token.balanceOf(alice) - before, 20 ether);
+    }
+}
+
+/// @dev Minimal mintable ERC20 for the token-path test.
+contract MockERC20 {
+    string public name = "Mock USD";
+    string public symbol = "mUSD";
+    uint8 public decimals = 18;
+    mapping(address => uint256) public balanceOf;
+    mapping(address => mapping(address => uint256)) public allowance;
+
+    function mint(address to, uint256 amt) external {
+        balanceOf[to] += amt;
+    }
+
+    function approve(address spender, uint256 amt) external returns (bool) {
+        allowance[msg.sender][spender] = amt;
+        return true;
+    }
+
+    function transfer(address to, uint256 amt) external returns (bool) {
+        balanceOf[msg.sender] -= amt;
+        balanceOf[to] += amt;
+        return true;
+    }
+
+    function transferFrom(address from, address to, uint256 amt) external returns (bool) {
+        allowance[from][msg.sender] -= amt;
+        balanceOf[from] -= amt;
+        balanceOf[to] += amt;
+        return true;
     }
 }
