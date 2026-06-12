@@ -172,6 +172,43 @@ contract MarketTest is MarketBase {
         market.buy{value: c}(id, 0, 50e18, c - 1);
     }
 
+    function test_PreviewRedeemZeroAfterClaim() public {
+        uint256 id = _createAndCommit();
+        vm.warp(t0 + 250);
+        _buy(id, 0, alice, 20e18);
+        _buy(id, 1, bob, 10e18); // loser funds the winner
+        vm.warp(t0 + 350);
+        vm.prank(oracleOp);
+        oracle.commitValidation(id, 0, 9000, "w0");
+        vm.warp(t0 + 550);
+        market.settle(id);
+        assertGt(market.previewRedeem(id, alice), 0);
+        vm.prank(alice);
+        market.redeem(id);
+        assertEq(market.previewRedeem(id, alice), 0); // preview agrees with reality after claim
+    }
+
+    function test_SweepResidualGuardsLateClaim() public {
+        uint256 id = _createAndCommit();
+        vm.warp(t0 + 250);
+        _buy(id, 0, alice, 20e18);
+        _buy(id, 1, bob, 10e18);
+        vm.warp(t0 + 350);
+        vm.prank(oracleOp);
+        oracle.commitValidation(id, 0, 9000, "w0");
+        vm.warp(t0 + 550);
+        market.settle(id);
+        // grace passes, organizer sweeps before alice redeemed
+        vm.warp(t0 + 500 + 30 days + 1);
+        vm.prank(organizer);
+        market.sweepResidual(id);
+        // alice's late redeem fails EXPLICITLY (not an opaque underflow panic)
+        vm.prank(alice);
+        vm.expectRevert(WordMarket.AlreadySwept.selector);
+        market.redeem(id);
+        assertEq(market.previewRedeem(id, alice), 0);
+    }
+
     /// fuzz: arbitrary buy then partial sell keeps balance == totalReserve == Σ reserve.
     function testFuzz_ReserveSolvent(uint96 buyShares, uint96 sellShares) public {
         uint256 id = _createAndCommit();

@@ -227,6 +227,7 @@ contract WordMarket is IWordMarket, ReentrancyGuard {
         if (!settled[eventId]) settle(eventId);
         if (noWinners[eventId]) revert NoWinners();
         if (claimed[eventId][msg.sender]) revert AlreadyClaimed();
+        if (residualSwept[eventId]) revert AlreadySwept(); // explicit, not an opaque underflow
 
         IWordPool pool = _pool();
         uint256 n = pool.wordCount(eventId);
@@ -268,6 +269,7 @@ contract WordMarket is IWordMarket, ReentrancyGuard {
 
     function _ownReserveShare(uint256 eventId, address user) internal returns (uint256 amount) {
         if (claimed[eventId][user]) revert AlreadyClaimed();
+        if (residualSwept[eventId]) revert AlreadySwept(); // explicit, not an opaque underflow
         IWordPool pool = _pool();
         uint256 n = pool.wordCount(eventId);
         for (uint256 w = 0; w < n; w++) {
@@ -341,7 +343,11 @@ contract WordMarket is IWordMarket, ReentrancyGuard {
     }
 
     /// @notice Preview a user's redeemable payout (computed live from the current bitmap).
+    /// @dev Note: per-word reserve[] is intentionally frozen at settlement and NOT
+    ///      decremented on redeem/refund (only totalReserve is), so post-settlement only
+    ///      `balance == totalReserve` holds, not `totalReserve == Σ reserve`.
     function previewRedeem(uint256 eventId, address user) external view returns (uint256 payout) {
+        if (claimed[eventId][user] || residualSwept[eventId]) return 0; // matches what redeem would pay
         IWordPool pool = _pool();
         uint256 n = pool.wordCount(eventId);
         uint256 bitmap = _oracle().validatedBitmap(eventId);
