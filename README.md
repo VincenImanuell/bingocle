@@ -60,10 +60,12 @@ Smart contracts  : EventFactory · WordPool · WordMarket · OracleRegistry
 
 ```bash
 # 1. Contracts — build, test, deploy to Mantle Sepolia
-cd contracts
-forge build && forge test
-PRIVATE_KEY=0x... AGENT_ADDRESS=0x... \
-  forge script script/Deploy.s.sol --rpc-url mantle_sepolia --broadcast --verify
+cd contracts && forge build && forge test && cd ..
+
+# Deploy + auto-write addresses into agent/.env and capability/.env:
+PRIVATE_KEY=0x... AGENT_ADDRESS=0x... RPC_URL=https://rpc.sepolia.mantle.xyz \
+  scripts/deploy.sh --broadcast --verify
+# (or run forge script script/Deploy.s.sol directly and copy the printed addresses)
 
 # 2. Agent service — AI Curator / Odds / Oracle + organizer API
 cd ../agent
