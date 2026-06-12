@@ -8,7 +8,9 @@ import {
   cmdFinalize,
   cmdPool,
   cmdCard,
+  cmdPrice,
   cmdBuy,
+  cmdSell,
   cmdValidate,
   cmdClaim,
   parseLine,
@@ -50,8 +52,12 @@ async function runLine(sender: string, line: string): Promise<string | null> {
       return cmdPool(Number(a[0]));
     case "card":
       return cmdCard(sender, Number(a[0]));
+    case "price":
+      return cmdPrice(Number(a[0]), a.slice(1).join(" "));
     case "buy":
       return cmdBuy(sender, Number(a[0]), a.slice(1, -1).join(" "), a[a.length - 1]);
+    case "sell":
+      return cmdSell(sender, Number(a[0]), a.slice(1, -1).join(" "), a[a.length - 1]);
     case "validate":
       return cmdValidate(Number(a[0]), a.slice(1).join(" ") || undefined);
     case "claim":

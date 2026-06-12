@@ -1,7 +1,7 @@
 import { ethers } from "ethers";
 import { agentApi } from "./api.js";
 import { walletFor, provider } from "./wallets.js";
-import { asUser, wordIndexOf } from "./chain.js";
+import { asUser, read, wordIndexOf } from "./chain.js";
 
 /**
  * Channel-agnostic command core. Both the Telegram bot and the email adapter call
@@ -81,20 +81,45 @@ export async function cmdCard(userKey: string, id: number): Promise<string> {
   return renderCard(view.labels, view.markedMask);
 }
 
+export async function cmdPrice(id: number, word: string): Promise<string> {
+  const idx = await wordIndexOf(id, word);
+  if (idx < 0) return `"${word}" is not in event #${id}'s pool.`;
+  const price: bigint = await read.wordMarket().spotPrice(id, idx);
+  return `📈 "${word}" spot price ≈ ${(+ethers.formatEther(price)).toFixed(3)} MNT/share`;
+}
+
 export async function cmdBuy(
   userKey: string,
   id: number,
   word: string,
-  amount: string,
+  shares: string,
 ): Promise<string> {
-  if (!id || !word || !amount) return "Usage: buy <id> <word> <amountMNT>";
+  if (!id || !word || !shares) return "Usage: buy <id> <word> <shares>";
   const idx = await wordIndexOf(id, word);
   if (idx < 0) return `"${word}" is not in event #${id}'s pool.`;
   const w = walletFor(userKey);
-  const value = ethers.parseEther(amount);
-  const tx = await asUser(w).wordMarket().buy(id, idx, value, { value });
+  const sharesWei = ethers.parseEther(shares);
+  const cost: bigint = await read.wordMarket().quoteBuy(id, idx, sharesWei);
+  const tx = await asUser(w).wordMarket().buy(id, idx, sharesWei, cost, { value: cost });
   await tx.wait();
-  return `✅ Bought ${amount} MNT on "${word}" (#${idx}). tx: ${tx.hash}`;
+  return `✅ Bought ${shares} "${word}" shares for ${(+ethers.formatEther(cost)).toFixed(3)} MNT. Price rises with demand — sell later if it climbs. tx: ${tx.hash}`;
+}
+
+export async function cmdSell(
+  userKey: string,
+  id: number,
+  word: string,
+  shares: string,
+): Promise<string> {
+  if (!id || !word || !shares) return "Usage: sell <id> <word> <shares>";
+  const idx = await wordIndexOf(id, word);
+  if (idx < 0) return `"${word}" is not in event #${id}'s pool.`;
+  const w = walletFor(userKey);
+  const sharesWei = ethers.parseEther(shares);
+  const refund: bigint = await read.wordMarket().quoteSell(id, idx, sharesWei);
+  const tx = await asUser(w).wordMarket().sell(id, idx, sharesWei, 0n);
+  await tx.wait();
+  return `✅ Sold ${shares} "${word}" shares for ${(+ethers.formatEther(refund)).toFixed(3)} MNT. tx: ${tx.hash}`;
 }
 
 export async function cmdValidate(id: number, text?: string): Promise<string> {
@@ -108,11 +133,11 @@ export async function cmdClaim(userKey: string, id: number): Promise<string> {
   const u = asUser(walletFor(userKey));
   const out: string[] = [];
   try {
-    const tx = await u.wordMarket().claim(id);
+    const tx = await u.wordMarket().redeem(id);
     await tx.wait();
-    out.push(`Prediction rewards claimed (${tx.hash}).`);
+    out.push(`Trading payout redeemed (${tx.hash}).`);
   } catch (e: any) {
-    out.push(`Prediction: ${e?.shortMessage ?? "nothing to claim"}.`);
+    out.push(`Payout: ${e?.shortMessage ?? "nothing to redeem"}.`);
   }
   try {
     const tx = await u.rewardVault().claim(id);

@@ -8,7 +8,9 @@ import {
   cmdFinalize,
   cmdPool,
   cmdCard,
+  cmdPrice,
   cmdBuy,
+  cmdSell,
   cmdValidate,
   cmdClaim,
 } from "./commands.js";
@@ -36,8 +38,10 @@ bot.start((ctx) =>
       "/create <theme> — start an event\n" +
       "/submit <id> word1, word2, word3 — predict words\n" +
       "/card <id> — get your bingo card\n" +
-      "/buy <id> <word> <amount> — back a word\n" +
-      "/claim <id> — collect winnings\n" +
+      "/price <id> <word> — current share price\n" +
+      "/buy <id> <word> <shares> — buy shares (price rises with demand)\n" +
+      "/sell <id> <word> <shares> — sell shares (take profit before lock)\n" +
+      "/claim <id> — redeem winnings\n" +
       "/agentguide — full operator guide",
   ),
 );
@@ -64,10 +68,24 @@ bot.command("finalize", (ctx) =>
 bot.command("pool", (ctx) => guard(ctx, () => cmdPool(Number(args(ctx.message.text)[0]))));
 bot.command("card", (ctx) => guard(ctx, () => cmdCard(String(ctx.from!.id), Number(args(ctx.message.text)[0]))));
 
+bot.command("price", (ctx) =>
+  guard(ctx, () => {
+    const a = args(ctx.message.text);
+    return cmdPrice(Number(a[0]), a.slice(1).join(" "));
+  }),
+);
+
 bot.command("buy", (ctx) =>
   guard(ctx, () => {
     const a = args(ctx.message.text);
     return cmdBuy(String(ctx.from!.id), Number(a[0]), a.slice(1, -1).join(" "), a[a.length - 1]);
+  }),
+);
+
+bot.command("sell", (ctx) =>
+  guard(ctx, () => {
+    const a = args(ctx.message.text);
+    return cmdSell(String(ctx.from!.id), Number(a[0]), a.slice(1, -1).join(" "), a[a.length - 1]);
   }),
 );
 

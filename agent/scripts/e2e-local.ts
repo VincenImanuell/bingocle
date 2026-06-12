@@ -51,14 +51,20 @@ async function main() {
   // read the on-chain schedule so we can land exactly inside each phase
   const cfg = await contracts.eventFactory().getConfig(eventId);
 
-  // 3. founder window: claim free seed + buy founded word
+  // 3. founder window: claim free seed + buy founded word at the opening curve price
   await setTime(cfg.submissionEnd + 1n); // -> Founder
   console.log("phase", await phaseOf(eventId));
-  await (await contracts.wordMarket().claimFounderSeed(eventId, 0)).wait();
-  await (
-    await contracts.wordMarket().buy(eventId, 0, ethers.parseEther("10"), { value: ethers.parseEther("10") })
-  ).wait();
-  console.log("founder seed + bought 10 on Word0");
+  const market = contracts.wordMarket();
+  await (await market.claimFounderSeed(eventId, 0)).wait();
+  const buyShares = ethers.parseEther("10");
+  const cost: bigint = await market.quoteBuy(eventId, 0, buyShares);
+  await (await market.buy(eventId, 0, buyShares, cost, { value: cost })).wait();
+  console.log(`founder seed + bought 10 Word0 shares for ${ethers.formatEther(cost)} MNT`);
+
+  // demo a trade: sell half back, then re-buy (price moves)
+  const sellRefund: bigint = await market.quoteSell(eventId, 0, ethers.parseEther("5"));
+  await (await market.sell(eventId, 0, ethers.parseEther("5"), 0n)).wait();
+  console.log(`sold 5 Word0 shares back for ${ethers.formatEther(sellRefund)} MNT`);
 
   // 4. market: mint card
   await setTime(cfg.founderEnd + 1n); // -> Market
@@ -74,14 +80,15 @@ async function main() {
   const bitmap = await contracts.oracleRegistry().validatedBitmap(eventId);
   console.log("validated bitmap", bitmap.toString(2));
 
-  // 6. settled: claim prediction + pool rewards
+  // 6. settled: settle + redeem trading payout + pool rewards
   await setTime(cfg.disputeEnd + 1n); // -> Settled
   console.log("phase", await phaseOf(eventId));
+  await (await market.settle(eventId)).wait();
   const before = await provider().getBalance(me);
-  await (await contracts.wordMarket().claim(eventId)).wait();
+  await (await market.redeem(eventId)).wait();
   await (await contracts.rewardVault().claim(eventId)).wait();
   const after = await provider().getBalance(me);
-  console.log("claimed; net balance delta (incl gas):", ethers.formatEther(after - before));
+  console.log("redeemed; net balance delta (incl gas):", ethers.formatEther(after - before));
 
   const marked = await contracts.bingoCardNFT().markedMask(tokenId);
   console.log("card markedMask", Number(marked).toString(2));
