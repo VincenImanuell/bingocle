@@ -46,8 +46,7 @@ Smart contracts  : EventFactory · WordPool · WordMarket · OracleRegistry
 ├── docs/
 │   ├── Bingocle_EN.md   # Full project spec (English)
 │   ├── Bingocle_ID.md   # Full project spec (Bahasa Indonesia)
-│   ├── project.md       # Master / brainstorm doc
-│   └── SUBMISSION.md    # Mantle Turing Test 2026 submission readiness checklist
+│   └── project.md       # Master / brainstorm doc
 ├── contracts/           # Solidity (Foundry) — 7 contracts + lib + tests + deploy script
 ├── agent/               # Node/TS — AI Curator + Odds Engine + Validation Oracle + HTTP API
 ├── capability/          # Node/TS — Telegram Capability + /agent-guide (Part B surface)
