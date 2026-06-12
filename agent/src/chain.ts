@@ -32,10 +32,18 @@ export function signer(): ethers.Wallet {
   return _signer;
 }
 
+// Local nonce tracking so back-to-back sends from the single agent wallet don't
+// collide (the provider's pending nonce can lag under fast/instant mining).
+let _runner: ethers.NonceManager | null = null;
+function runner(): ethers.NonceManager {
+  if (!_runner) _runner = new ethers.NonceManager(signer());
+  return _runner;
+}
+
 /** Build a read/write contract instance bound to the agent signer. */
 function contract(name: string, address: string): ethers.Contract {
   if (!address) throw new Error(`Missing address for ${name} (set it in .env)`);
-  return new ethers.Contract(address, loadAbi(name), signer());
+  return new ethers.Contract(address, loadAbi(name), runner());
 }
 
 export const contracts = {

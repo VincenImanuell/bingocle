@@ -9,8 +9,8 @@
     "start": "tsx src/server.ts",
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "curate": "tsx src/cli/curate.ts",
-    "oracle": "tsx src/cli/oracle.ts"
+    "oracle": "tsx src/cli/oracle.ts",
+    "e2e:local": "tsx scripts/e2e-local.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.69.0",

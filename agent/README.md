@@ -35,3 +35,17 @@ npm run oracle -- <eventId> [demo/transcript.txt]
 ```
 
 Splits the transcript into chunks (simulating live STT), matches each, and commits fresh verdicts — the rehearsed-audio demo path from the spec.
+
+## Local integration test (no testnet / no API key)
+
+Proves the full ethers wiring against deployed bytecode on a local anvil:
+
+```bash
+anvil --silent &
+cd ../contracts && PRIVATE_KEY=0xac0974…ff80 AGENT_ADDRESS=0xf39F…2266 \
+  forge script script/Deploy.s.sol --rpc-url http://127.0.0.1:8545 --broadcast
+cd ../agent   # .env points at anvil + the deployed addresses
+npm run e2e:local
+```
+
+Runs createEvent → commitPool → buy → mint → validate → settle → claim and asserts the payout math (single staker, mult 2x, scale 0.5 ⇒ +12 net). The Curator/Odds/Oracle LLM calls are skipped (the pool is hand-built) so no API key is needed.
