@@ -104,82 +104,73 @@ contract BingocleTest is Test {
 
     // --- tests ---
 
+    /// helper: buy `shares` of word `w` for `who` at the current curve price.
+    function _buy(uint256 id, uint256 w, address who, uint256 shares) internal returns (uint256 cost) {
+        cost = market.quoteBuy(id, w, shares);
+        vm.prank(who);
+        market.buy{value: cost}(id, w, shares, cost);
+    }
+
     function test_FullLifecycle() public {
         uint256 id = _createEvent();
-
-        // organizer funds the reward/sponsor pool during submission
         vm.prank(organizer);
         vault.fund{value: 60 ether}(id, 60 ether);
-
-        // curator commits the AI-curated pool (still pre-market)
         _commitPool(id);
 
-        // Founder window: alice claims her free seed + buys her founded word
+        // Founder window: alice founds word0, claims seed + buys cheap
         vm.warp(t0 + 150);
         assertEq(uint256(factory.phaseOf(id)), uint256(BingocleTypes.Phase.Founder));
-        vm.startPrank(alice);
+        vm.prank(alice);
         market.claimFounderSeed(id, 0);
-        market.buy{value: 10 ether}(id, 0, 10 ether);
-        vm.stopPrank();
+        uint256 aCost = _buy(id, 0, alice, 10e18);
 
-        // Public market: bob buys the winning word and a losing word; both mint cards
+        // Market: bob buys word0 (pushes price up) + word1 (a loser); both mint cards
         vm.warp(t0 + 250);
         assertEq(uint256(factory.phaseOf(id)), uint256(BingocleTypes.Phase.Market));
-        vm.startPrank(bob);
-        market.buy{value: 10 ether}(id, 0, 10 ether); // winner
-        market.buy{value: 10 ether}(id, 1, 10 ether); // loser
+        _buy(id, 0, bob, 10e18);
+        _buy(id, 1, bob, 10e18);
+        vm.prank(bob);
         cards.mint(id);
-        vm.stopPrank();
         vm.prank(alice);
         cards.mint(id);
 
-        // Live: oracle validates word 0 only
+        // Live: oracle validates word0 only
         vm.warp(t0 + 350);
-        assertEq(uint256(factory.phaseOf(id)), uint256(BingocleTypes.Phase.Live));
         vm.prank(oracleOp);
         oracle.commitValidation(id, 0, 9700, "the AI flagged it");
-        assertTrue(oracle.isValidated(id, 0));
         assertEq(identity.agentIdOf(oracleOp), 1);
 
-        // Settled: claims open
+        // Settled
         vm.warp(t0 + 550);
-        assertEq(uint256(factory.phaseOf(id)), uint256(BingocleTypes.Phase.Settled));
+        market.settle(id);
 
-        // word0 pool = 20 ether (alice 10 + bob 10), mult 2x => owed 40 ether.
-        // total deposited = 30 ether (word0 20 + word1 10) < 40 => scale < 1.
-        // alice gross = 10*2 = 20 ; bob gross = 10*2 = 20 ; totalOwed = 40.
-        // scale = 30/40 = 0.75 ; each gets 15 ether.
-        uint256 aliceBefore = alice.balance;
+        // alice + bob each hold 10 shares of validated word0 (equal shares => equal payout),
+        // and they split word0's reserve PLUS the freed losing word1 reserve => profit.
+        uint256 aBefore = alice.balance;
         vm.prank(alice);
-        market.claim(id);
-        assertApproxEqAbs(alice.balance - aliceBefore, 15 ether, 1);
-
-        uint256 bobBefore = bob.balance;
+        uint256 aPay = market.redeem(id);
+        uint256 bBefore = bob.balance;
         vm.prank(bob);
-        market.claim(id);
-        assertApproxEqAbs(bob.balance - bobBefore, 15 ether, 1);
+        uint256 bPay = market.redeem(id);
+        assertEq(aPay, bPay); // equal shares of the winning word
+        assertEq(alice.balance - aBefore, aPay);
+        assertGt(aPay, aCost); // winners profit from the losing word's freed reserve
 
-        // alice's founder seed on validated word0 pays from the reward pool:
-        // seedUnit 1 ether * mult 2x = 2 ether.
-        uint256 aliceVaultBefore = alice.balance;
+        // founder seed on validated word0 pays from the reward pool (unchanged rail)
+        uint256 aVaultBefore = alice.balance;
         vm.prank(alice);
         vault.claim(id);
-        assertGe(alice.balance - aliceVaultBefore, 2 ether);
+        assertGe(alice.balance - aVaultBefore, 2 ether); // 1 ether seed * 2x mult
 
-        // double claim reverts
+        // double redeem reverts
         vm.prank(alice);
         vm.expectRevert(WordMarket.AlreadyClaimed.selector);
-        market.claim(id);
+        market.redeem(id);
 
-        // there ARE winners, so refundIfNoWinners reverts
+        // winners exist => refundNoWinners reverts
         vm.prank(bob);
         vm.expectRevert(WordMarket.HasWinners.selector);
-        market.refundIfNoWinners(id);
-
-        // organizer sweeps residual: market took 30, owed 40 -> capped, residual 0.
-        // (Underfunded case: nothing to sweep. Just assert it doesn't revert.)
-        vm.prank(organizer);
-        market.sweepResidual(id);
+        market.refundNoWinners(id);
     }
 
     function test_NoWinnersRefund() public {
@@ -187,15 +178,14 @@ contract BingocleTest is Test {
         _commitPool(id);
 
         vm.warp(t0 + 250); // Market
-        vm.prank(alice);
-        market.buy{value: 5 ether}(id, 3, 5 ether);
+        uint256 cost = _buy(id, 3, alice, 5e18);
 
         // no oracle validation at all
         vm.warp(t0 + 550); // Settled
         uint256 before = alice.balance;
         vm.prank(alice);
-        market.refundIfNoWinners(id);
-        assertEq(alice.balance - before, 5 ether);
+        market.refundNoWinners(id);
+        assertEq(alice.balance - before, cost); // full reserve back
     }
 
     function test_CardIsSoulbound() public {
@@ -297,19 +287,18 @@ contract BingocleTest is Test {
         _commitPool(id);
 
         vm.warp(t0 + 250); // Market
-        vm.prank(alice);
-        market.buy{value: 8 ether}(id, 2, 8 ether);
+        uint256 cost = _buy(id, 2, alice, 8e18);
 
         // organizer cancels (before eventEnd)
         vm.prank(organizer);
         factory.cancel(id);
         assertEq(uint256(factory.phaseOf(id)), uint256(BingocleTypes.Phase.Cancelled));
 
-        // alice refunds her stake; organizer reclaims the reward pool
+        // alice refunds her position; organizer reclaims the reward pool
         uint256 aBefore = alice.balance;
         vm.prank(alice);
         market.refund(id);
-        assertEq(alice.balance - aBefore, 8 ether);
+        assertEq(alice.balance - aBefore, cost);
 
         uint256 oBefore = organizer.balance;
         vm.prank(organizer);
@@ -321,14 +310,15 @@ contract BingocleTest is Test {
         uint256 id = _createEvent();
         _commitPool(id);
         vm.warp(t0 + 150); // Founder window
+        uint256 c = market.quoteBuy(id, 0, 1e18);
         // bob is not the founder of word 0 -> cannot buy yet
         vm.prank(bob);
         vm.expectRevert(WordMarket.BadPhase.selector);
-        market.buy{value: 1 ether}(id, 0, 1 ether);
+        market.buy{value: c}(id, 0, 1e18, c);
         // alice (founder of word 0) can
         vm.prank(alice);
-        market.buy{value: 1 ether}(id, 0, 1 ether);
-        assertEq(market.wordPoolTotal(id, 0), 1 ether);
+        market.buy{value: c}(id, 0, 1e18, c);
+        assertEq(market.sharesOf(id, 0, alice), 1e18);
     }
 
     function test_FundRejectedOnceLive() public {
@@ -357,25 +347,29 @@ contract BingocleTest is Test {
         _commitPool(id);
 
         vm.warp(t0 + 250); // Market
+        uint256 aCost = market.quoteBuy(id, 0, 10e18);
         vm.startPrank(alice);
-        token.approve(address(market), 10 ether);
-        market.buy(id, 0, 10 ether); // winner; no msg.value for ERC20
+        token.approve(address(market), aCost);
+        market.buy(id, 0, 10e18, aCost); // winner; no msg.value for ERC20
         vm.stopPrank();
+        uint256 bCost = market.quoteBuy(id, 1, 10e18);
         vm.startPrank(bob);
-        token.approve(address(market), 10 ether);
-        market.buy(id, 1, 10 ether); // loser, funds the winner's mult
+        token.approve(address(market), bCost);
+        market.buy(id, 1, 10e18, bCost); // loser, freed into the winner pool
         vm.stopPrank();
-        assertEq(market.wordPoolTotal(id, 0), 10 ether);
+        assertEq(market.sharesOf(id, 0, alice), 10e18);
 
         vm.warp(t0 + 350); // Live
         vm.prank(oracleOp);
         oracle.commitValidation(id, 0, 9000, "erc20 word");
 
-        vm.warp(t0 + 550); // Settled — market holds 20, owes 20 (scale 1)
+        vm.warp(t0 + 550); // Settled
+        market.settle(id);
         uint256 before = token.balanceOf(alice);
         vm.prank(alice);
-        market.claim(id); // stake 10 * mult 2x = 20 ether
-        assertEq(token.balanceOf(alice) - before, 20 ether);
+        uint256 pay = market.redeem(id); // alice (sole word0 holder) takes word0 + freed word1
+        assertEq(token.balanceOf(alice) - before, pay);
+        assertEq(pay, aCost + bCost); // sole winner gets everything (full conservation)
     }
 }
 

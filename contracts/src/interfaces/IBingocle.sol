@@ -42,12 +42,12 @@ interface IWordPool {
 }
 
 /// @title IWordMarket
-/// @notice Parimutuel buy-side market + bought-prediction payout rail.
+/// @notice The word-share trading market. RewardVault only needs the founder-seed
+///         flag; the full trading surface (buy/sell/quote/redeem) lives on WordMarket.
 interface IWordMarket {
-    function stakeOf(uint256 eventId, uint256 wordIndex, address user) external view returns (uint256);
-    function wordPoolTotal(uint256 eventId, uint256 wordIndex) external view returns (uint256);
-    function totalDeposited(uint256 eventId) external view returns (uint256);
     function hasFounderSeed(uint256 eventId, uint256 wordIndex, address user) external view returns (bool);
+    function sharesOf(uint256 eventId, uint256 wordIndex, address user) external view returns (uint256);
+    function spotPrice(uint256 eventId, uint256 wordIndex) external view returns (uint256);
 }
 
 /// @title IOracleRegistry
