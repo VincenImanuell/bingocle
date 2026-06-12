@@ -41,4 +41,14 @@ for target in "$ROOT/agent/.env" "$ROOT/capability/.env"; do
   echo "Wrote addresses -> $target"
 done
 
+# Frontend uses NEXT_PUBLIC_<NAME> (drop the _ADDRESS suffix, add the prefix).
+FE="$ROOT/frontend/.env.local"
+[ -f "$FE" ] || { [ -f "$ROOT/frontend/.env.example" ] && cp "$ROOT/frontend/.env.example" "$FE" || touch "$FE"; }
+while IFS='=' read -r k v; do
+  [ -z "$k" ] && continue
+  nk="NEXT_PUBLIC_${k%_ADDRESS}"
+  upsert "$nk" "$v" "$FE"
+done <<< "$ADDRS"
+echo "Wrote NEXT_PUBLIC_* addresses -> $FE"
+
 echo "Done. Addresses also belong in README.md (Deployed addresses table)."

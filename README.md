@@ -75,6 +75,11 @@ npm install && npm run start
 cd ../capability
 cp .env.example .env   # TELEGRAM_BOT_TOKEN, AGENT_API_URL, DEMO_WALLET_MNEMONIC, addresses
 npm install && npm run start
+
+# 4. Frontend — landing + the on-chain live market
+cd ../frontend
+# deploy.sh already wrote frontend/.env.local with NEXT_PUBLIC_* addresses
+npm install && npm run dev   # landing at /, live trading market at /play
 ```
 
 The AI agent wallet (`AGENT_ADDRESS`) is registered as the ERC-8004 oracle and the WordPool curator by the deploy script. Read [`capability/AGENT-GUIDE.md`](capability/AGENT-GUIDE.md) to operate the game from chat.
