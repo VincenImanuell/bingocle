@@ -10,7 +10,9 @@
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "oracle": "tsx src/cli/oracle.ts",
-    "e2e:local": "tsx scripts/e2e-local.ts"
+    "oracle:audio": "tsx src/cli/validateAudio.ts",
+    "e2e:local": "tsx scripts/e2e-local.ts",
+    "test": "node --import tsx --test test/*.test.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.69.0",

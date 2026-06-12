@@ -89,12 +89,26 @@ export async function curate(args: {
     maxTokens: 8000,
   });
 
-  // Aggregate canonical -> votes + earliest founder.
+  const pool = aggregate(subs, out.decisions, out.suggested, poolSize);
+  return { pool, decisions: out.decisions };
+}
+
+/**
+ * Pure aggregation: votes per canonical, earliest submitter = founder, AI fillers
+ * to reach poolSize, vote-desc, capped at 40 for on-chain gas. `subsSorted` must
+ * be ascending by ts so the first occurrence of a canonical is its founder.
+ */
+export function aggregate(
+  subsSorted: Submission[],
+  decisions: Decision[],
+  suggested: string[],
+  poolSize: number,
+): CuratedWord[] {
   const byCanonical = new Map<string, CuratedWord>();
   const decisionByInput = new Map<string, Decision>();
-  for (const d of out.decisions) decisionByInput.set(d.input, d);
+  for (const d of decisions) decisionByInput.set(d.input, d);
 
-  for (const s of subs) {
+  for (const s of subsSorted) {
     const d = decisionByInput.get(s.raw);
     if (!d || d.status === "rejected" || !d.canonical) continue;
     const key = d.canonical;
@@ -102,26 +116,16 @@ export async function curate(args: {
     if (existing) {
       existing.votes += 1; // later submitter -> vote only
     } else {
-      byCanonical.set(key, {
-        word: key,
-        votes: 1,
-        founder: s.wallet, // earliest, since subs are ts-sorted
-        aiSuggested: false,
-      });
+      byCanonical.set(key, { word: key, votes: 1, founder: s.wallet, aiSuggested: false });
     }
   }
 
-  // Fill with AI-suggested words until we reach poolSize.
-  for (const w of out.suggested) {
+  for (const w of suggested) {
     if (byCanonical.size >= poolSize) break;
     const key = w.trim();
     if (!key || byCanonical.has(key)) continue;
     byCanonical.set(key, { word: key, votes: 0, founder: "", aiSuggested: true });
   }
 
-  // Keep all accepted words (>= poolSize when possible), capped for on-chain gas.
-  const pool = [...byCanonical.values()]
-    .sort((a, b) => b.votes - a.votes)
-    .slice(0, 40);
-  return { pool, decisions: out.decisions };
+  return [...byCanonical.values()].sort((a, b) => b.votes - a.votes).slice(0, 40);
 }

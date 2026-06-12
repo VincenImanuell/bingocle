@@ -58,13 +58,23 @@ export async function computeOdds(args: {
   });
 
   const probByWord = new Map(out.estimates.map((e) => [e.word, clamp(e.aiProb, 0, 1)]));
-  const maxVotes = Math.max(1, ...args.pool.map((w) => w.votes));
-  const vig = 0.12;
+  return blend(args.pool, probByWord);
+}
 
-  return args.pool.map((w) => {
+/**
+ * Pure odds math: blend LLM probability (60%) with community vote share (40%),
+ * clamp away from 0/1, derive price = implied probability and
+ * mult = (1/price) * (1 - vig). Deterministic so the on-chain odds are auditable.
+ */
+export function blend(
+  pool: CuratedWord[],
+  probByWord: Map<string, number>,
+  vig = 0.12,
+): WordOdds[] {
+  const maxVotes = Math.max(1, ...pool.map((w) => w.votes));
+  return pool.map((w) => {
     const aiProb = probByWord.get(w.word) ?? 0.3;
     const voteWeight = w.votes / maxVotes; // 0..1
-    // 60% AI signal, 40% community signal; clamp away from 0/1.
     const p = clamp(0.6 * aiProb + 0.4 * voteWeight, 0.05, 0.95);
     const mult = clamp((1 / p) * (1 - vig), 1.05, 5.0);
     return {

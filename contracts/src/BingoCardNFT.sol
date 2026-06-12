@@ -3,6 +3,7 @@ pragma solidity 0.8.28;
 
 import {ERC721} from "@openzeppelin/contracts/token/ERC721/ERC721.sol";
 import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
+import {Base64} from "@openzeppelin/contracts/utils/Base64.sol";
 import {BingocleTypes} from "./lib/BingocleTypes.sol";
 import {BingoLib} from "./lib/BingoLib.sol";
 import {IEventFactory, IWordPool, IOracleRegistry, IBingoCardNFT} from "./interfaces/IBingocle.sol";
@@ -87,15 +88,48 @@ contract BingoCardNFT is IBingoCardNFT, ERC721 {
         return _cells[tokenId];
     }
 
-    function markedMask(uint256 tokenId) external view returns (uint32) {
+    function markedMask(uint256 tokenId) public view returns (uint32) {
         _requireOwned(tokenId);
         uint256 eventId = eventOf[tokenId];
         uint256 bitmap = IOracleRegistry(factory.oracleRegistry()).validatedBitmap(eventId);
         return BingoLib.markedFromCard(_cells[tokenId], bitmap);
     }
 
+    /// @notice Fully on-chain metadata (Base64 data URI) so the card renders in wallets.
     function tokenURI(uint256 tokenId) public view override returns (string memory) {
         _requireOwned(tokenId);
-        return string.concat("bingocle://card/", eventOf[tokenId].toString(), "/", tokenId.toString());
+        uint256 eventId = eventOf[tokenId];
+        uint256 marks = _popcount(markedMask(tokenId));
+
+        string memory svg = string.concat(
+            "<svg xmlns='http://www.w3.org/2000/svg' width='350' height='350'>",
+            "<rect width='100%' height='100%' fill='#1b1530'/>",
+            "<text x='50%' y='44%' fill='#e8c66b' font-size='30' text-anchor='middle' font-family='serif'>BINGOCLE</text>",
+            "<text x='50%' y='58%' fill='#cdb8ff' font-size='16' text-anchor='middle' font-family='monospace'>Card #",
+            tokenId.toString(),
+            unicode" · Event ",
+            eventId.toString(),
+            "</text></svg>"
+        );
+        string memory json = string.concat(
+            '{"name":"Bingocle Card #',
+            tokenId.toString(),
+            '","description":"A Bingocle bingo card on Mantle. Cells mark live as the AI oracle validates spoken words.",',
+            '"image":"data:image/svg+xml;base64,',
+            Base64.encode(bytes(svg)),
+            '","attributes":[{"trait_type":"Event","value":',
+            eventId.toString(),
+            '},{"trait_type":"Marked","value":',
+            marks.toString(),
+            "}]}"
+        );
+        return string.concat("data:application/json;base64,", Base64.encode(bytes(json)));
+    }
+
+    function _popcount(uint32 x) private pure returns (uint256 c) {
+        while (x != 0) {
+            c += x & 1;
+            x >>= 1;
+        }
     }
 }

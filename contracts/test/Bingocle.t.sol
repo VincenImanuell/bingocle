@@ -241,6 +241,24 @@ contract BingocleTest is Test {
         wordPool.commitPool(id, h, p, m, f, bytes32(uint256(1)));
     }
 
+    function test_TokenURIIsOnChainJson() public {
+        uint256 id = _createEvent();
+        _commitPool(id);
+        vm.warp(t0 + 250);
+        vm.prank(alice);
+        uint256 tokenId = cards.mint(id);
+        string memory uri = cards.tokenURI(tokenId);
+        // data URI prefix => renders in wallets without a metadata server
+        assertEq(_substr(uri, 29), "data:application/json;base64,");
+    }
+
+    function _substr(string memory s, uint256 n) internal pure returns (string memory) {
+        bytes memory b = bytes(s);
+        bytes memory out = new bytes(n);
+        for (uint256 i = 0; i < n; i++) out[i] = b[i];
+        return string(out);
+    }
+
     function test_BingoLibLines() public pure {
         // a full top row (cells 0-4) completes line 0
         uint32 marked = 0x1F; // bits 0..4

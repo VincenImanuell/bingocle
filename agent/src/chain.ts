@@ -61,7 +61,11 @@ export function wordHash(word: string): string {
   return ethers.keccak256(ethers.toUtf8Bytes(word));
 }
 
-/** Build a simple merkle root over the ordered word hashes (keccak, sorted-pair). */
+/**
+ * Ordered merkle root over the word hashes. Pairs are concatenated in position
+ * order (NOT sorted) so the root binds the index->word mapping — the on-chain
+ * pool references words by index, so the commitment must be order-sensitive.
+ */
 export function merkleRoot(words: string[]): string {
   let layer = words.map(wordHash);
   if (layer.length === 0) return ethers.ZeroHash;
@@ -69,9 +73,8 @@ export function merkleRoot(words: string[]): string {
     const next: string[] = [];
     for (let i = 0; i < layer.length; i += 2) {
       const a = layer[i];
-      const b = i + 1 < layer.length ? layer[i + 1] : layer[i];
-      const [lo, hi] = a < b ? [a, b] : [b, a];
-      next.push(ethers.keccak256(ethers.concat([lo, hi])));
+      const b = i + 1 < layer.length ? layer[i + 1] : layer[i]; // dup last if odd
+      next.push(ethers.keccak256(ethers.concat([a, b])));
     }
     layer = next;
   }

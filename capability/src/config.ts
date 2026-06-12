@@ -22,4 +22,18 @@ export const config = {
   contractsOut:
     process.env.CONTRACTS_OUT ??
     path.resolve(__dirname, "..", "..", "contracts", "out"),
+
+  // Email channel (optional second surface). IMAP poll in, SMTP reply out.
+  email: {
+    imapHost: process.env.IMAP_HOST ?? "",
+    imapPort: Number(process.env.IMAP_PORT ?? 993),
+    imapUser: process.env.IMAP_USER ?? "",
+    imapPass: process.env.IMAP_PASS ?? "",
+    smtpHost: process.env.SMTP_HOST ?? "",
+    smtpPort: Number(process.env.SMTP_PORT ?? 465),
+    smtpUser: process.env.SMTP_USER ?? process.env.IMAP_USER ?? "",
+    smtpPass: process.env.SMTP_PASS ?? process.env.IMAP_PASS ?? "",
+    from: process.env.EMAIL_FROM ?? process.env.IMAP_USER ?? "",
+    pollMs: Number(process.env.EMAIL_POLL_MS ?? 15000),
+  },
 };

@@ -59,15 +59,27 @@ export async function matchTranscript(args: {
     maxTokens: 4000,
   });
 
-  const seen = args.alreadyValidated ?? new Set<number>();
+  return filterMatches(out.matches, args.pool, args.alreadyValidated);
+}
+
+/**
+ * Pure: keep only in-bounds, not-yet-validated, de-duplicated matches; clamp
+ * confidence to [0,1] and cap the proof snippet length.
+ */
+export function filterMatches(
+  raw: { wordIndex: number; confidence: number; snippet: string }[],
+  pool: string[],
+  alreadyValidated?: Set<number>,
+): OracleMatch[] {
+  const seen = new Set<number>(alreadyValidated ?? []);
   const result: OracleMatch[] = [];
-  for (const m of out.matches) {
-    if (m.wordIndex < 0 || m.wordIndex >= args.pool.length) continue;
+  for (const m of raw) {
+    if (m.wordIndex < 0 || m.wordIndex >= pool.length) continue;
     if (seen.has(m.wordIndex)) continue;
     seen.add(m.wordIndex);
     result.push({
       wordIndex: m.wordIndex,
-      word: args.pool[m.wordIndex],
+      word: pool[m.wordIndex],
       confidence: Math.max(0, Math.min(1, m.confidence)),
       snippet: m.snippet.slice(0, 240),
     });
