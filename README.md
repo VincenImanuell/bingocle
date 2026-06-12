@@ -86,17 +86,17 @@ The AI agent wallet (`AGENT_ADDRESS`) is registered as the ERC-8004 oracle and t
 
 ## Deployed addresses (Mantle Sepolia)
 
-> Filled after `forge script Deploy` — paste the console output here for the submission.
+Network: Mantle Sepolia (chainId 5003) · Deployer/Oracle: `0x785cF4596b932B4319Eb31b9C353fE7Ae7695D2D`
 
 | Contract | Address |
 |---|---|
-| EventFactory | `0x…` |
-| WordPool | `0x…` |
-| WordMarket | `0x…` |
-| OracleRegistry | `0x…` |
-| BingoCardNFT | `0x…` |
-| RewardVault | `0x…` |
-| AgentIdentity (ERC-8004) | `0x…` |
+| EventFactory | `0x4ded43273E1b3be15bBBF1A5cE9494f77B045Afb` |
+| WordPool | `0x1F0BebC4D0f7C4B8428Ac2FE14BBeb2178e63C29` |
+| WordMarket | `0x2a853222d57d28a713F45b8F78503376ccF5471b` |
+| OracleRegistry | `0xe998c6F467876b2dA1C5D126EA5576A6943c2073` |
+| BingoCardNFT | `0x1A7643b31EfD272F65fe7D8653fE35172284A1F3` |
+| RewardVault | `0x0B0766bF126180730E408105C35A761D7AADe968` |
+| AgentIdentity (ERC-8004) | `0x6EC7E9AE2dD88fAe0F1851487Fbd15F0b89382A0` |
 
 ## Documentation
 
@@ -109,7 +109,7 @@ The complete design — features, architecture, judging-criteria alignment, MVP 
 
 - [x] Core contracts (7) — `EventFactory · WordPool · WordMarket · OracleRegistry · BingoCardNFT · RewardVault · AgentIdentity` — compiling, unit-tested (Foundry)
 - [x] ERC-8004 identity NFT for the oracle agent (soulbound, accruing reputation)
-- [x] AI Word Curator + Odds Engine (Claude `claude-opus-4-8`)
+- [x] AI Word Curator + Odds Engine (Gemini `gemini-2.0-flash`)
 - [x] AI Validation Oracle (LLM matching → on-chain commit; recorded-transcript demo path)
 - [x] Bingocle Capability over Telegram + `/agent-guide` (per-user demo wallets)
 - [ ] Deploy + verify on Mantle Sepolia Explorer (run `Deploy.s.sol`, paste addresses above)

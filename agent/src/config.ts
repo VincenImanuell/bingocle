@@ -14,8 +14,8 @@ function req(name: string): string {
 export const SCALE = 10_000;
 
 export const config = {
-  anthropicApiKey: process.env.ANTHROPIC_API_KEY ?? "",
-  model: "claude-opus-4-8",
+  geminiApiKey: process.env.GEMINI_API_KEY ?? "",
+  model: "gemini-2.0-flash",
 
   rpcUrl: process.env.MANTLE_RPC_URL ?? "https://rpc.sepolia.mantle.xyz",
   chainId: Number(process.env.CHAIN_ID ?? 5003),
@@ -37,8 +37,8 @@ export const config = {
     path.resolve(__dirname, "..", "..", "contracts", "out"),
 };
 
-export function requireAnthropic(): string {
-  return req("ANTHROPIC_API_KEY");
+export function requireGemini(): string {
+  return req("GEMINI_API_KEY");
 }
 
 export function requireSigner(): { key: string } {
