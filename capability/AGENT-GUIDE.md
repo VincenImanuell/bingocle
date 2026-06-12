@@ -38,7 +38,9 @@ You operate all of this **by chatting** — over Telegram (and email). No termin
 | `/finalize <id> <theme>` | organizer | Run the **AI Curator + Odds Engine** and commit the frozen word pool + odds on-chain |
 | `/pool <id>` | anyone | List the curated words with opening price / multiplier and the current phase |
 | `/card <id>` | player | Mint your 5×5 bingo card (once) and show it; re-run to see live marks |
-| `/buy <id> <word> <amount>` | player | Stake `<amount>` MNT on `<word>` at the running odds |
+| `/price <id> <word>` | player | Current share price of a word (rises with demand) |
+| `/buy <id> <word> <shares>` | player | Buy `<shares>` of `<word>` on the bonding curve — price rises as people buy |
+| `/sell <id> <word> <shares>` | player | Sell shares back to the curve before lock — **buy low, sell high** to profit |
 | `/validate <id> [transcript text]` | organizer | Run the **AI Oracle** on a transcript chunk and commit verdicts on-chain (omit text to use the demo line) |
 | `/claim <id>` | player | Collect prediction payouts + bingo bonuses + founder seeds |
 

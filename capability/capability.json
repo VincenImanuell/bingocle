@@ -19,8 +19,10 @@
     { "name": "/finalize", "args": "<id> <theme>", "summary": "Organizer: AI-curate the pool + odds and commit on-chain" },
     { "name": "/pool", "args": "<id>", "summary": "List curated words, odds, and current phase" },
     { "name": "/card", "args": "<id>", "summary": "Mint and view your 5x5 bingo card with live marks" },
-    { "name": "/buy", "args": "<id> <word> <amount>", "summary": "Stake MNT on a word at the running odds" },
+    { "name": "/price", "args": "<id> <word>", "summary": "Current share price of a word (moves with demand)" },
+    { "name": "/buy", "args": "<id> <word> <shares>", "summary": "Buy word shares on the bonding curve; price rises with demand" },
+    { "name": "/sell", "args": "<id> <word> <shares>", "summary": "Sell shares back before lock to realize profit/loss" },
     { "name": "/validate", "args": "<id> [transcript]", "summary": "Organizer: run the AI oracle and commit verdicts on-chain" },
-    { "name": "/claim", "args": "<id>", "summary": "Collect prediction payouts, bingo bonuses, and founder seeds" }
+    { "name": "/claim", "args": "<id>", "summary": "Redeem trading payouts, bingo bonuses, and founder seeds" }
   ]
 }
