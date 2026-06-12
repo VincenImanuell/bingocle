@@ -5,7 +5,7 @@ import { mantle, mantleSepoliaTestnet } from "wagmi/chains";
    it; set a real id in .env.local to enable WalletConnect QR wallets.
    https://cloud.walletconnect.com */
 const projectId =
-  process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID ??
+  process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID ||
   "bingocle-dev-placeholder";
 
 export const wagmiConfig = getDefaultConfig({
