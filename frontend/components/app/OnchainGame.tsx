@@ -857,7 +857,9 @@ export default function OnchainGame() {
                   </div>
                 ) : (
                   <div className="text-center py-8">
-                    <p className="body-copy text-base mb-4">No card — you can still watch.</p>
+                    <p className="body-copy text-base mb-4">
+                      {cardData === undefined ? "⏳ Fetching live data…" : "👁️ Watching live — the oracle is validating words on-chain."}
+                    </p>
                   </div>
                 )}
                 <p className="kicker mt-3 text-center">Tiles light up as oracle validates words</p>
@@ -873,18 +875,20 @@ export default function OnchainGame() {
                 </button>
               </div>
               <div
-                className="rounded-lg border px-4 py-3 mb-4"
-                style={{ borderColor: "rgba(43,227,212,0.25)", background: "rgba(0,30,27,0.35)" }}
+                className="rounded-xl border px-4 py-4 mb-4"
+                style={{ borderColor: "rgba(43,227,212,0.3)", background: "linear-gradient(160deg, rgba(0,40,36,0.5), rgba(0,20,18,0.4))" }}
               >
-                <p className="step-title text-xs mb-2" style={{ color: "#2be3d4" }}>🎙️ AI Oracle — Transcribing Audio</p>
-                <audio controls src="/demo-speech.mp3" style={{ width: "100%" }} />
-                <div className="flex items-center gap-2 mt-2">
-                  <span className="animate-pulse" style={{ color: "#2be3d4", letterSpacing: 2 }}>▉ ▍ ▉ ▎ ▉</span>
-                  <span className="text-xs text-cream/70">Listening → matching pool words → writing verdicts on-chain…</span>
+                <div className="flex items-center gap-3 mb-3">
+                  <span className="eq" aria-hidden><i /><i /><i /><i /><i /></span>
+                  <span className="step-title" style={{ color: "#2be3d4" }}>AI Oracle — Transcribing Audio</span>
                 </div>
-                <p className="text-xs text-cream/40 mt-2">
-                  Demo input is an MP3 clip (efficient + reproducible). In production the same STT → on-chain
-                  pipeline can ingest a live feed — a YouTube/Twitch/RTMP stream or a mic.
+                <audio controls src="/demo-speech.mp3" style={{ width: "100%", height: 40 }} />
+                <p className="mt-3" style={{ fontSize: "0.84rem", color: "rgba(245,230,200,0.8)", lineHeight: 1.45 }}>
+                  Speech-to-text → matching the word pool → writing verdicts on-chain.
+                </p>
+                <p className="mt-2" style={{ fontSize: "0.76rem", color: "rgba(245,230,200,0.5)", lineHeight: 1.45 }}>
+                  Demo uses an MP3 clip (efficient + reproducible). In production the same pipeline can ingest a
+                  live feed — a YouTube / Twitch / RTMP stream or a mic.
                 </p>
               </div>
               {cells && (
