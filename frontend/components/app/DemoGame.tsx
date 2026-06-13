@@ -515,6 +515,28 @@ export default function DemoGame() {
         </div>
       </header>
 
+      <div
+        style={{
+          background: "rgba(43,227,212,0.07)",
+          borderBottom: "1px solid rgba(43,227,212,0.18)",
+          padding: "0.45rem 1rem",
+          textAlign: "center",
+          fontFamily: "var(--font-ui)",
+          fontSize: "0.62rem",
+          letterSpacing: "0.22em",
+          textTransform: "uppercase",
+          color: "#2be3d4",
+        }}
+      >
+        ✦ Demo Mode — simulated · no real funds · wallets optional ✦
+        <Link
+          href="/app"
+          style={{ marginLeft: "1.2rem", color: "#e9b95c", textDecoration: "underline", letterSpacing: "0.15em" }}
+        >
+          Launch Real App →
+        </Link>
+      </div>
+
       <main className="mx-auto max-w-6xl px-4 pb-24 pt-8 sm:px-6">
         <p className="kicker mb-6 text-center">
           Interactive demo · simulated oracle · mirrors exact on-chain flow · no real funds required
