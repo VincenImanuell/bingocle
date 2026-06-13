@@ -1,10 +1,14 @@
 import type { Metadata } from "next";
-import DemoGame from "@/components/app/DemoGame";
+import OnchainGame from "@/components/app/OnchainGame";
 
 export const metadata: Metadata = {
-  title: "Bingocle — Play",
+  title: "Bingocle — App",
 };
 
 export default function AppPage() {
-  return <DemoGame />;
+  return (
+    <main className="min-h-screen bg-[#0e0c08]">
+      <OnchainGame />
+    </main>
+  );
 }
