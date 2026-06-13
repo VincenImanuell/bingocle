@@ -15,7 +15,7 @@ services:
     name: bingocle-agent
     runtime: docker
     dockerfilePath: ./agent/Dockerfile
-    dockerContext: .
+    dockerContext: ./agent
     plan: free
     healthCheckPath: /health
     envVars:

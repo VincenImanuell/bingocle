@@ -88,8 +88,8 @@ The contracts are on Mantle Sepolia and the web app deploys to Vercel. The two
 Node services ship with Docker + a Render Blueprint:
 
 ```bash
-# Agent service — build context is the repo root (it reads ABIs from contracts/out):
-docker build -f agent/Dockerfile -t bingocle-agent .
+# Agent service — self-contained (ABIs bundled at agent/abis):
+docker build -t bingocle-agent ./agent
 
 # Capability (Telegram bot) — self-contained (ABIs embedded):
 docker build -t bingocle-capability ./capability
