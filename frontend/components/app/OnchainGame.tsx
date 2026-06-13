@@ -21,24 +21,155 @@ import {
 
 const FREE = 255;
 
+type PanelMode = "buy" | "sell";
+
+interface PositionPanelProps {
+  word: string;
+  mode: PanelMode;
+  onModeChange: (m: PanelMode) => void;
+  shares: string;
+  onSharesChange: (v: string) => void;
+  price: bigint | undefined;
+  myShares: bigint | undefined;
+  prob: number;
+  mult: number;
+  busy: string | null;
+  tradingOpen: boolean;
+  isConnected: boolean;
+  onBuy: () => void;
+  onSell: () => void;
+  onClose: () => void;
+}
+
+function PositionPanel({
+  word, mode, onModeChange, shares, onSharesChange,
+  price, myShares, prob, mult,
+  busy, tradingOpen, isConnected, onBuy, onSell, onClose,
+}: PositionPanelProps) {
+  const priceEth = price ? +formatEther(price) : 0;
+  const sharesNum = parseFloat(shares) || 0;
+  const totalCost = priceEth * sharesNum;
+  const hasPosition = myShares && myShares > BigInt(0);
+  const mySharesNum = myShares ? +formatEther(myShares) : 0;
+  const myValue = mySharesNum * priceEth;
+
+  return (
+    <div className="mx-4 mb-3 rounded-lg border border-[#d9a44159] bg-[#1a1410] p-4 text-sm">
+      <div className="mb-3 flex items-center justify-between">
+        <span className="font-semibold text-[#e8c66b]">{word}</span>
+        <button onClick={onClose} className="text-xs opacity-40 hover:opacity-80">✕</button>
+      </div>
+
+      {/* Buy / Sell toggle */}
+      <div className="mb-4 flex rounded-lg overflow-hidden border border-[#d9a44126]">
+        <button
+          onClick={() => onModeChange("buy")}
+          className={`flex-1 py-2 text-xs font-bold transition ${
+            mode === "buy"
+              ? "bg-[#1a4d3f] text-[#4ecca3]"
+              : "bg-[#16120d] text-[#f5e6c8] opacity-40 hover:opacity-70"
+          }`}
+        >
+          Buy
+        </button>
+        <button
+          onClick={() => onModeChange("sell")}
+          disabled={!hasPosition}
+          className={`flex-1 py-2 text-xs font-bold transition ${
+            mode === "sell"
+              ? "bg-[#3d1f10] text-[#e07a4a]"
+              : "bg-[#16120d] text-[#f5e6c8] opacity-40 hover:opacity-70"
+          } disabled:opacity-20`}
+        >
+          Sell
+        </button>
+      </div>
+
+      {/* shares input */}
+      <div className="mb-3 flex items-center gap-3">
+        <label className="shrink-0 text-xs opacity-60">Shares</label>
+        <input
+          type="number"
+          min={1}
+          step="1"
+          value={shares}
+          onChange={(e) => onSharesChange(e.target.value)}
+          className="w-full rounded border border-[#d9a44159] bg-[#16120d] px-3 py-2 text-sm text-center"
+        />
+      </div>
+
+      {/* stats grid */}
+      <div className="mb-4 grid grid-cols-2 gap-2 text-xs">
+        <div className="rounded bg-[#16120d] p-2.5">
+          <div className="mb-0.5 opacity-50">Spot price</div>
+          <div className="font-semibold">{priceEth > 0 ? `${priceEth.toFixed(5)} MNT/sh` : "—"}</div>
+        </div>
+        <div className="rounded bg-[#16120d] p-2.5">
+          <div className="mb-0.5 opacity-50">{mode === "buy" ? "Est. cost" : "Est. refund"}</div>
+          <div className="font-semibold">{totalCost > 0 ? `~${totalCost.toFixed(4)} MNT` : "—"}</div>
+        </div>
+        {mult > 0 && (
+          <div className="rounded bg-[#16120d] p-2.5">
+            <div className="mb-0.5 opacity-50">Payout mult</div>
+            <div className="font-semibold text-[#e8c66b]">{(mult / 10000).toFixed(2)}×</div>
+          </div>
+        )}
+        {hasPosition && (
+          <div className="rounded bg-[#16120d] p-2.5">
+            <div className="mb-0.5 opacity-50">Your position</div>
+            <div className="font-semibold text-teal-300">
+              {mySharesNum.toFixed(2)} sh · ~{myValue.toFixed(4)} MNT
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* action button */}
+      {mode === "buy" ? (
+        <button
+          disabled={!isConnected || !tradingOpen || !!busy || sharesNum <= 0}
+          onClick={onBuy}
+          className="w-full rounded py-3 text-sm font-bold bg-[#1a4d3f] text-[#4ecca3] border border-[#2f7d6b] hover:bg-[#2f7d6b] hover:text-white disabled:opacity-30 transition"
+        >
+          {busy === "buy" ? "⏳ confirming…" : `Buy ${sharesNum} shares`}
+        </button>
+      ) : (
+        <button
+          disabled={!isConnected || !tradingOpen || !!busy || !hasPosition || sharesNum <= 0}
+          onClick={onSell}
+          className="w-full rounded py-3 text-sm font-bold bg-[#3d1f10] text-[#e07a4a] border border-[#7d4a2f] hover:bg-[#7d4a2f] hover:text-white disabled:opacity-30 transition"
+        >
+          {busy === "sell" ? "⏳ confirming…" : `Sell ${sharesNum} shares`}
+        </button>
+      )}
+
+      {!tradingOpen && (
+        <p className="mt-2 text-center text-xs opacity-40">Trading opens in Founder &amp; Market phases.</p>
+      )}
+      {!isConnected && (
+        <p className="mt-2 text-center text-xs opacity-40">Connect wallet to trade.</p>
+      )}
+    </div>
+  );
+}
+
 export default function OnchainGame() {
   const { address, isConnected } = useAccount();
   const [eventId, setEventId] = useState(1);
   const [record, setRecord] = useState<EventRecord | null>(null);
-  const [selected, setSelected] = useState(0);
   const [shares, setShares] = useState("10");
   const [busy, setBusy] = useState<string | null>(null);
   const [txHash, setTxHash] = useState<`0x${string}` | undefined>();
+  const [activeWord, setActiveWord] = useState<number | null>(null);
+  const [panelMode, setPanelMode] = useState<PanelMode>("buy");
 
   const { isLoading: txPending } = useWaitForTransactionReceipt({ hash: txHash });
   const { writeContractAsync } = useWriteContract();
 
-  // word labels + odds from the agent service
   useEffect(() => {
     fetchEventRecord(eventId).then(setRecord);
   }, [eventId, txPending]);
 
-  // phase + word count + commit status
   const { data: meta, refetch: refetchMeta } = useReadContracts({
     contracts: [
       { address: addresses.eventFactory, abi: eventFactoryAbi, functionName: "phaseOf", args: [BigInt(eventId)] },
@@ -50,7 +181,6 @@ export default function OnchainGame() {
   const wordCount = meta?.[1]?.result ? Number(meta[1].result) : record?.words.length ?? 0;
   const committed = Boolean(meta?.[2]?.result);
 
-  // per-word spot price + my shares (batched)
   const priceCalls = useMemo(
     () =>
       Array.from({ length: wordCount }, (_, w) => ({
@@ -76,7 +206,6 @@ export default function OnchainGame() {
   const { data: prices, refetch: refetchPrices } = useReadContracts({ contracts: priceCalls });
   const { data: myShares, refetch: refetchShares } = useReadContracts({ contracts: shareCalls });
 
-  // card
   const { data: card, refetch: refetchCard } = useReadContracts({
     contracts: address
       ? [
@@ -99,7 +228,6 @@ export default function OnchainGame() {
   const cells = cardView?.[0]?.result as readonly number[] | undefined;
   const marked = cardView?.[1]?.result ? Number(cardView[1].result) : 0;
 
-  // claim previews
   const { data: redeemable } = useReadContract({
     address: addresses.wordMarket,
     abi: wordMarketAbi,
@@ -124,7 +252,6 @@ export default function OnchainGame() {
       await new Promise((r) => setTimeout(r, 2500));
       refetchAll();
     } catch (e) {
-      // surface contract reverts to the user
       alert((e as { shortMessage?: string })?.shortMessage ?? String(e));
     } finally {
       setBusy(null);
@@ -140,37 +267,39 @@ export default function OnchainGame() {
     }
   })();
 
-  const buy = () =>
+  const buy = (w: number) =>
     run("buy", async () => {
-      const cost = await readQuote("quoteBuy", selected, sharesWei);
+      const cost = await readQuote("quoteBuy", w, sharesWei);
       return writeContractAsync({
         address: addresses.wordMarket,
         abi: wordMarketAbi,
         functionName: "buy",
-        args: [BigInt(eventId), BigInt(selected), sharesWei, cost],
+        args: [BigInt(eventId), BigInt(w), sharesWei, cost],
         value: cost,
       });
     });
-  const sell = () =>
+
+  const sell = (w: number) =>
     run("sell", async () =>
       writeContractAsync({
         address: addresses.wordMarket,
         abi: wordMarketAbi,
         functionName: "sell",
-        args: [BigInt(eventId), BigInt(selected), sharesWei, BigInt(0)],
+        args: [BigInt(eventId), BigInt(w), sharesWei, BigInt(0)],
       }),
     );
+
   const mint = () =>
     run("mint", async () =>
       writeContractAsync({ address: addresses.bingoCardNFT, abi: bingoCardAbi, functionName: "mint", args: [BigInt(eventId)] }),
     );
+
   const claim = () =>
     run("claim", async () => {
       await writeContractAsync({ address: addresses.wordMarket, abi: wordMarketAbi, functionName: "redeem", args: [BigInt(eventId)] }).catch(() => {});
       return writeContractAsync({ address: addresses.rewardVault, abi: rewardVaultAbi, functionName: "claim", args: [BigInt(eventId)] });
     });
 
-  // read a buy/sell quote on demand (for the exact value to send)
   async function readQuote(fn: "quoteBuy" | "quoteSell", word: number, amount: bigint): Promise<bigint> {
     return readContract(wagmiConfig, {
       address: addresses.wordMarket,
@@ -182,90 +311,186 @@ export default function OnchainGame() {
 
   const label = (w: number) => record?.words[w] ?? `#${w}`;
 
+  // Probability that this word is said (0–100). From agent aiProb, else 50.
+  const prob = (w: number): number => {
+    const p = record?.odds[w]?.aiProb;
+    return p !== undefined ? Math.round(p * 100) : 50;
+  };
+  const mult = (w: number): number => record?.odds[w]?.mult1e4 ?? 0;
+
+  function openPanel(w: number, mode: PanelMode = "buy") {
+    if (activeWord === w && panelMode === mode) {
+      setActiveWord(null);
+    } else {
+      setActiveWord(w);
+      setPanelMode(mode);
+    }
+  }
+
   return (
-    <div className="mx-auto max-w-4xl px-4 py-8 text-[#f5e6c8]">
+    <div className="mx-auto max-w-3xl px-4 py-8 text-[#f5e6c8]">
+      {/* header */}
       <div className="mb-6 flex items-center justify-between gap-4">
         <h1 className="font-serif text-2xl text-[#e8c66b]">Bingocle — Live Market</h1>
         <ConnectButton />
       </div>
 
+      {/* event selector + status bar */}
       <div className="mb-6 flex flex-wrap items-center gap-3 text-sm">
         <label className="opacity-80">Event</label>
         <input
           type="number"
           min={1}
           value={eventId}
-          onChange={(e) => setEventId(Math.max(1, Number(e.target.value)))}
+          onChange={(e) => { setEventId(Math.max(1, Number(e.target.value))); setActiveWord(null); }}
           className="w-20 rounded border border-[#d9a44159] bg-[#1a1410] px-2 py-1"
         />
-        <span className="rounded bg-[#2a2118] px-2 py-1">Phase: <b className="text-[#e8c66b]">{phase}</b></span>
+        <span className="rounded bg-[#2a2118] px-2 py-1">
+          Phase: <b className="text-[#e8c66b]">{phase}</b>
+        </span>
         {record && <span className="opacity-70">{record.theme}</span>}
         {!committed && <span className="text-amber-400">pool not committed yet</span>}
         {(busy || txPending) && <span className="text-teal-300">⏳ {busy ?? "confirming"}…</span>}
       </div>
 
-      {!isConnected && <p className="opacity-70">Connect a wallet on Mantle Sepolia to trade.</p>}
+      {/* ── Word Market (Polymarket-style) ── */}
+      <div className="rounded-lg border border-[#d9a44126] bg-[#16120d] overflow-hidden">
+        {/* column header */}
+        <div className="grid grid-cols-[1fr_110px_100px_auto] items-center gap-x-3 border-b border-[#d9a44126] px-4 py-2.5 text-xs font-semibold opacity-50">
+          <span>Word</span>
+          <span>Probability</span>
+          <span>Price / share</span>
+          <span>Position</span>
+        </div>
 
-      {/* word market */}
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+        {/* rows */}
         {Array.from({ length: wordCount }, (_, w) => {
           const price = prices?.[w]?.result as bigint | undefined;
           const sh = myShares?.[w]?.result as bigint | undefined;
+          const hasPosition = sh && sh > BigInt(0);
+          const p = prob(w);
+          const isActive = activeWord === w;
+
           return (
-            <button
-              key={w}
-              onClick={() => setSelected(w)}
-              className={`rounded-lg border px-3 py-2 text-left transition ${
-                selected === w ? "border-[#e8c66b] bg-[#2a2118]" : "border-[#d9a44126] bg-[#16120d] hover:border-[#d9a44159]"
-              }`}
-            >
-              <div className="font-medium">{label(w)}</div>
-              <div className="text-xs opacity-70">{price ? `${(+formatEther(price)).toFixed(3)} MNT/sh` : "…"}</div>
-              {sh && sh > BigInt(0) && <div className="text-xs text-teal-300">you: {(+formatEther(sh)).toFixed(2)} sh</div>}
-            </button>
+            <div key={w} className="border-b border-[#d9a44126] last:border-0">
+              {/* main row */}
+              <div
+                className={`grid grid-cols-[1fr_110px_100px_auto] items-center gap-x-3 px-4 py-3 cursor-pointer transition ${
+                  isActive ? "bg-[#1e1810]" : "hover:bg-[#1a1610]"
+                }`}
+                onClick={() => openPanel(w)}
+              >
+                {/* word + position badge */}
+                <div className="flex items-center gap-2 min-w-0">
+                  <span className="font-medium truncate">{label(w)}</span>
+                  {hasPosition && (
+                    <span className="shrink-0 rounded-full bg-teal-900 px-1.5 py-0.5 text-[10px] font-semibold text-teal-300">
+                      holding
+                    </span>
+                  )}
+                </div>
+
+                {/* probability bar */}
+                <div className="flex items-center gap-2">
+                  <div className="h-1.5 flex-1 rounded-full bg-[#2a2118] overflow-hidden">
+                    <div
+                      className="h-full rounded-full bg-[#e8c66b] transition-all"
+                      style={{ width: `${p}%` }}
+                    />
+                  </div>
+                  <span className="w-8 text-right text-xs font-bold text-[#e8c66b]">{p}%</span>
+                </div>
+
+                {/* price */}
+                <div className="text-sm opacity-80">
+                  {price ? `${(+formatEther(price)).toFixed(4)} MNT` : "…"}
+                </div>
+
+                {/* position amount */}
+                <div className="text-sm">
+                  {hasPosition ? (
+                    <span className="font-semibold text-teal-300">{(+formatEther(sh)).toFixed(2)} sh</span>
+                  ) : (
+                    <span className="opacity-25">—</span>
+                  )}
+                </div>
+              </div>
+
+              {/* action buttons (always visible, collapsed to icons) */}
+              <div className="flex gap-2 border-t border-[#d9a44113] px-4 py-2">
+                <button
+                  disabled={!isConnected || !tradingOpen || !!busy}
+                  onClick={(e) => { e.stopPropagation(); openPanel(w, "buy"); }}
+                  className={`rounded px-3 py-1 text-xs font-semibold border transition ${
+                    isActive && panelMode === "buy"
+                      ? "bg-[#2f7d6b] text-white border-[#2f7d6b]"
+                      : "bg-[#1a4d3f] text-[#4ecca3] border-[#2f7d6b] hover:bg-[#2f7d6b] hover:text-white"
+                  } disabled:opacity-30`}
+                >
+                  Buy
+                </button>
+                <button
+                  disabled={!isConnected || !tradingOpen || !!busy || !hasPosition}
+                  onClick={(e) => { e.stopPropagation(); openPanel(w, "sell"); }}
+                  className={`rounded px-3 py-1 text-xs font-semibold border transition ${
+                    isActive && panelMode === "sell"
+                      ? "bg-[#7d4a2f] text-white border-[#7d4a2f]"
+                      : "bg-[#3d1f10] text-[#e07a4a] border-[#7d4a2f] hover:bg-[#7d4a2f] hover:text-white"
+                  } disabled:opacity-30`}
+                >
+                  Sell
+                </button>
+                {mult(w) > 0 && (
+                  <span className="ml-auto self-center text-xs opacity-40">
+                    {(mult(w) / 10000).toFixed(2)}× payout
+                  </span>
+                )}
+              </div>
+
+              {/* inline order panel */}
+              {isActive && (
+                <PositionPanel
+                  word={label(w)}
+                  mode={panelMode}
+                  onModeChange={setPanelMode}
+                  shares={shares}
+                  onSharesChange={setShares}
+                  price={price}
+                  myShares={sh}
+                  prob={p}
+                  mult={mult(w)}
+                  busy={busy}
+                  tradingOpen={tradingOpen}
+                  isConnected={isConnected}
+                  onBuy={() => buy(w)}
+                  onSell={() => sell(w)}
+                  onClose={() => setActiveWord(null)}
+                />
+              )}
+            </div>
           );
         })}
+
+        {!tradingOpen && wordCount > 0 && (
+          <div className="px-4 py-3 text-xs opacity-50 text-center">
+            Trading opens in Founder &amp; Market phases.
+          </div>
+        )}
+        {wordCount === 0 && (
+          <div className="px-4 py-6 text-sm opacity-50 text-center">No words committed yet.</div>
+        )}
       </div>
 
-      {/* trade panel */}
-      <div className="mt-6 rounded-lg border border-[#d9a44126] bg-[#16120d] p-4">
-        <div className="mb-3 flex items-center gap-2">
-          <b className="text-[#e8c66b]">{label(selected)}</b>
-          <input
-            type="number"
-            min={0}
-            step="1"
-            value={shares}
-            onChange={(e) => setShares(e.target.value)}
-            className="w-24 rounded border border-[#d9a44159] bg-[#1a1410] px-2 py-1 text-sm"
-          />
-          <span className="text-xs opacity-70">shares</span>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <button
-            disabled={!isConnected || !tradingOpen || !!busy}
-            onClick={buy}
-            className="rounded bg-[#2f7d6b] px-4 py-2 text-sm font-semibold text-white disabled:opacity-40"
-          >
-            Buy (price rises with demand)
-          </button>
-          <button
-            disabled={!isConnected || !tradingOpen || !!busy}
-            onClick={sell}
-            className="rounded bg-[#7d4a2f] px-4 py-2 text-sm font-semibold text-white disabled:opacity-40"
-          >
-            Sell (take profit)
-          </button>
-        </div>
-        {!tradingOpen && <p className="mt-2 text-xs opacity-60">Trading is open in the Founder &amp; Market phases.</p>}
-      </div>
-
-      {/* card */}
+      {/* bingo card */}
       <div className="mt-6 rounded-lg border border-[#d9a44126] bg-[#16120d] p-4">
         <div className="mb-3 flex items-center justify-between">
           <b className="text-[#e8c66b]">Your bingo card</b>
           {isConnected && !hasCard && committed && (
-            <button onClick={mint} disabled={!!busy} className="rounded bg-[#2f7d6b] px-3 py-1 text-sm text-white disabled:opacity-40">
+            <button
+              onClick={mint}
+              disabled={!!busy}
+              className="rounded bg-[#2f7d6b] px-3 py-1 text-sm text-white disabled:opacity-40"
+            >
               Mint card
             </button>
           )}
@@ -278,9 +503,11 @@ export default function OnchainGame() {
               return (
                 <div
                   key={i}
-                  className={`flex aspect-square items-center justify-center rounded text-center text-[10px] ${
-                    hit ? "bg-[#2f7d6b] text-white" : "bg-[#221a12] text-[#cdbb96]"
+                  className={`flex aspect-square cursor-pointer items-center justify-center rounded text-center text-[10px] transition ${
+                    hit ? "bg-[#2f7d6b] text-white" : "bg-[#221a12] text-[#cdbb96] hover:bg-[#2a2118]"
                   }`}
+                  onClick={() => c !== FREE && openPanel(c, "buy")}
+                  title={c !== FREE ? `Trade "${label(c)}"` : "FREE"}
                 >
                   {text}
                 </div>
@@ -288,17 +515,20 @@ export default function OnchainGame() {
             })}
           </div>
         ) : (
-          <p className="text-sm opacity-60">No card yet.</p>
+          <p className="text-sm opacity-60">
+            No card yet.{!committed && " Wait for pool to commit."}
+          </p>
         )}
       </div>
 
-      {/* claim */}
+      {/* settle & claim */}
       <div className="mt-6 rounded-lg border border-[#d9a44126] bg-[#16120d] p-4">
         <div className="flex items-center justify-between">
           <div>
             <b className="text-[#e8c66b]">Settle &amp; claim</b>
             <div className="text-xs opacity-70">
-              redeemable now: {redeemable ? `${(+formatEther(redeemable as bigint)).toFixed(3)} MNT` : "—"}
+              redeemable:{" "}
+              {redeemable ? `${(+formatEther(redeemable as bigint)).toFixed(3)} MNT` : "—"}
             </div>
           </div>
           <button
@@ -312,7 +542,7 @@ export default function OnchainGame() {
       </div>
 
       <p className="mt-6 text-center text-xs opacity-50">
-        On-chain on Mantle. Word labels + odds via the Bingocle agent service.
+        On-chain on Mantle · AI-powered probability · trustless settlement
       </p>
     </div>
   );
