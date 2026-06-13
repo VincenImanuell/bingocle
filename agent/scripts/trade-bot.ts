@@ -88,8 +88,8 @@ async function main() {
       if (doSell) {
         const [wiStr, amt] = held[rnd(held.length)];
         const wi = Number(wiStr);
-        const want = eth(2 + Math.random() * 4); // big sells → sharp dips
-        const sh = want < amt ? want : amt; // sell a chunk or all
+        const frac = 50 + rnd(51); // dump 50-100% of the holding → sharp price crash
+        const sh = (amt * BigInt(frac)) / 100n;
         await (await p.m.sell(EID, wi, sh, 0n)).wait();
         p.holds[wi] = amt - sh;
         console.log(`t${t} SELL #${wi} x${ethers.formatEther(sh)} ${p.w.address.slice(0, 8)}`);
