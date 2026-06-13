@@ -34,13 +34,11 @@ export const SWAP_ORDER = ["Quest", "Mint", "Grant"];
 export const USER_WORD_INFO = { price: 0.25, mult: 2.5, aiProb: 0.22 };
 
 export type OracleEvent = {
-  /* word to validate; null = rejected (no match); "__USER__" = the
-     player's first founded word, skipped when there is none */
   word: string | null | "__USER__";
   heard?: string;
   snippet: string;
   conf: number;
-  gap: number; // seconds after the previous event
+  gap: number;
 };
 
 export const ORACLE_SCRIPT: OracleEvent[] = [
@@ -73,9 +71,77 @@ export const DEMO_EVENT = {
 
 export const STARTING_BALANCE = 100;
 
-/* demo leaderboard rivals — one of them is another user's AI Mind */
 export const RIVALS = [
   { name: "Atlas (AI Mind)", kind: "AI", profit: 38.2 },
   { name: "kelpie.eth", kind: "Human", profit: 21.5 },
   { name: "wordweaver", kind: "Human", profit: -12.4 },
 ];
+
+/* ── New: AI curation reasoning for each word in BASE_POOL ── */
+export const AI_CURATION_LOG: Array<{
+  word: string;
+  reason: string;
+  prob: number;
+}> = [
+  { word: "AI", reason: "Speaker's core topic — near-certain usage", prob: 95 },
+  { word: "Web3", reason: "Event theme — expected multiple times", prob: 90 },
+  { word: "Demo", reason: "Live demo day context — very high signal", prob: 92 },
+  { word: "Community", reason: "Startup events always reference community", prob: 88 },
+  { word: "Mantle", reason: "Network sponsor — mentioned prominently", prob: 86 },
+  { word: "Hackathon", reason: "Direct context of this event", prob: 85 },
+  { word: "Launch", reason: "Startups announce launches at demo days", prob: 78 },
+  { word: "Token", reason: "Common in Web3 panel discussions", prob: 75 },
+  { word: "Mainnet", reason: "Deployment talk expected from builders", prob: 72 },
+  { word: "Funding", reason: "VC/grant announcements are typical", prob: 70 },
+  { word: "Pitch", reason: "Demo day is a pitch day", prob: 66 },
+  { word: "Wallet", reason: "UX discussion often references wallet", prob: 64 },
+  { word: "Chain", reason: "Blockchain context — moderate probability", prob: 60 },
+  { word: "Gas Fee", reason: "Cost discussion — mentioned but not certain", prob: 55 },
+  { word: "Builder", reason: "Community shoutout typical at hackathons", prob: 54 },
+  { word: "Reward", reason: "Incentive programs — moderate chance", prob: 50 },
+  { word: "Oracle", reason: "Technical term — used by dev-focused speakers", prob: 48 },
+  { word: "Testnet", reason: "Often contrasted with mainnet announcements", prob: 45 },
+  { word: "DAO", reason: "Governance topic — less certain for this speaker", prob: 40 },
+  { word: "Mint", reason: "NFT reference — speaker-dependent", prob: 36 },
+  { word: "Sponsor", reason: "Acknowledgment section — possible mention", prob: 34 },
+  { word: "Grant", reason: "Ecosystem grants — typical but not guaranteed", prob: 30 },
+  { word: "Quest", reason: "Gamification term — niche, high multiplier", prob: 26 },
+  { word: "Airdrop", reason: "Distribution event — low probability, 2.8× payout", prob: 20 },
+];
+
+/* ── New: mock IPO orders that stream in during the Founder phase ── */
+export const IPO_MOCK_ORDERS: Array<{
+  player: string;
+  word: string;
+  amount: number;
+  delay: number; // ms after IPO phase starts
+}> = [
+  { player: "kelpie.eth", word: "AI", amount: 8, delay: 900 },
+  { player: "Atlas (AI Mind)", word: "Web3", amount: 12, delay: 1900 },
+  { player: "wordweaver", word: "Mantle", amount: 5, delay: 2800 },
+  { player: "0xdemo7f", word: "Demo", amount: 10, delay: 3700 },
+  { player: "kelpie.eth", word: "Funding", amount: 7, delay: 4600 },
+  { player: "Atlas (AI Mind)", word: "Token", amount: 15, delay: 5500 },
+  { player: "wordweaver", word: "Airdrop", amount: 3, delay: 6400 },
+  { player: "0xdemo7f", word: "Builder", amount: 6, delay: 7200 },
+];
+
+/* ── New: full speech text for typewriter transcript in live phase ── */
+export const SPEECH_TEXT =
+  "Good evening, everyone. Welcome to the Mantle Builder Demo Day! " +
+  "What an incredible community you all are — " +
+  "every builder in this room has shipped something remarkable this week. " +
+  "Tonight we celebrate what real AI-powered Web3 products look like. " +
+  "Our first team is targeting mainnet before end of quarter. " +
+  "Their pitch is simple: let the oracle decide, not the admin. " +
+  "You sign it straight from your wallet — no seed phrase, nothing extra. " +
+  "Settlement happens on Mantle, fees stay near zero, everything on-chain. " +
+  "The team closed their first funding round just last month. " +
+  "Building on testnet all quarter, mainnet before Q3 ends. " +
+  "Every verdict is recorded on the chain, permanently and trustlessly. " +
+  "This whole thing started as a hackathon side project, if you can believe it. " +
+  "The AI oracle writes verdicts straight on-chain via the builder's agent identity. " +
+  "The token simply routes value back to the players — pure utility, no noise. " +
+  "Let me switch over to the live demo real quick to show you how it works. " +
+  "And yes — every builder in this room has shipped — that deserves applause. " +
+  "The public launch is penciled in for early July. Thank you all so much!";
