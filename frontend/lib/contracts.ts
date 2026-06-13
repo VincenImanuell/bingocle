@@ -6,13 +6,21 @@ import { parseAbi } from "viem";
  * Word labels + odds are read from the agent service (NEXT_PUBLIC_AGENT_API),
  * which persists each event's curated pool — the chain only stores word hashes.
  */
+// Defaults are the live Mantle Sepolia deployment so production works without extra
+// env config; override via NEXT_PUBLIC_* for a different deployment.
 export const addresses = {
-  eventFactory: process.env.NEXT_PUBLIC_EVENT_FACTORY as `0x${string}`,
-  wordPool: process.env.NEXT_PUBLIC_WORD_POOL as `0x${string}`,
-  wordMarket: process.env.NEXT_PUBLIC_WORD_MARKET as `0x${string}`,
-  oracleRegistry: process.env.NEXT_PUBLIC_ORACLE_REGISTRY as `0x${string}`,
-  bingoCardNFT: process.env.NEXT_PUBLIC_BINGO_CARD_NFT as `0x${string}`,
-  rewardVault: process.env.NEXT_PUBLIC_REWARD_VAULT as `0x${string}`,
+  eventFactory: (process.env.NEXT_PUBLIC_EVENT_FACTORY ??
+    "0x4ded43273E1b3be15bBBF1A5cE9494f77B045Afb") as `0x${string}`,
+  wordPool: (process.env.NEXT_PUBLIC_WORD_POOL ??
+    "0x1F0BebC4D0f7C4B8428Ac2FE14BBeb2178e63C29") as `0x${string}`,
+  wordMarket: (process.env.NEXT_PUBLIC_WORD_MARKET ??
+    "0x2a853222d57d28a713F45b8F78503376ccF5471b") as `0x${string}`,
+  oracleRegistry: (process.env.NEXT_PUBLIC_ORACLE_REGISTRY ??
+    "0xe998c6F467876b2dA1C5D126EA5576A6943c2073") as `0x${string}`,
+  bingoCardNFT: (process.env.NEXT_PUBLIC_BINGO_CARD_NFT ??
+    "0x1A7643b31EfD272F65fe7D8653fE35172284A1F3") as `0x${string}`,
+  rewardVault: (process.env.NEXT_PUBLIC_REWARD_VAULT ??
+    "0x0B0766bF126180730E408105C35A761D7AADe968") as `0x${string}`,
 };
 
 // Defaults to the hosted agent so production works without extra env config;
