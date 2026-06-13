@@ -1,4 +1,5 @@
 import express from "express";
+import { ethers } from "ethers";
 import { config } from "./config.js";
 import { createEvent, phaseOf } from "./services/event.js";
 import { curateAndCommit } from "./services/pool.js";
@@ -48,7 +49,21 @@ app.post(
     // a name and the web/email surfaces can submit words before curation.
     const theme = String(req.body?.theme ?? "").trim();
     ensureEvent(out.eventId, theme);
-    res.json({ ...out, theme });
+    // Auto-seed the bingo bonus pool so winners can always claim. MUST happen before
+    // market lock (here it's right after create). Configurable via body.rewardFundMnt
+    // or REWARD_FUND_MNT env (0 = skip).
+    const fundMnt = Number(req.body?.rewardFundMnt ?? process.env.REWARD_FUND_MNT ?? 30);
+    let rewardFunded = 0;
+    if (fundMnt > 0) {
+      try {
+        const amt = ethers.parseEther(String(fundMnt));
+        await (await contracts.rewardVault().fund(out.eventId, amt, { value: amt })).wait();
+        rewardFunded = fundMnt;
+      } catch (e: any) {
+        console.warn("auto reward-fund failed:", e?.shortMessage ?? e?.message ?? e);
+      }
+    }
+    res.json({ ...out, theme, rewardFunded });
   }),
 );
 
