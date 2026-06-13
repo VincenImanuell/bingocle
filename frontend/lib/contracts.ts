@@ -15,7 +15,10 @@ export const addresses = {
   rewardVault: process.env.NEXT_PUBLIC_REWARD_VAULT as `0x${string}`,
 };
 
-export const AGENT_API = process.env.NEXT_PUBLIC_AGENT_API ?? "http://localhost:8787";
+// Defaults to the hosted agent so production works without extra env config;
+// set NEXT_PUBLIC_AGENT_API=http://localhost:8787 in .env.local for local dev.
+export const AGENT_API =
+  process.env.NEXT_PUBLIC_AGENT_API ?? "https://bingocle-production.up.railway.app";
 
 export const eventFactoryAbi = parseAbi([
   "function eventCount() view returns (uint256)",
