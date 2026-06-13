@@ -328,7 +328,9 @@ export default function OnchainGame() {
             <p className="body-copy text-base mb-6">
               You need a wallet on Mantle Sepolia to participate on-chain. Switch to demo mode to explore without a wallet.
             </p>
-            <ConnectWalletButton />
+            <div className="flex justify-center">
+              <ConnectWalletButton />
+            </div>
             <div className="mt-4">
               <Link href="/play" className="text-xs text-cream/40 hover:text-cream/70 underline transition">
                 ← Back to demo
