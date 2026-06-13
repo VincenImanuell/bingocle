@@ -6,8 +6,8 @@
   "description": "A community bingo prediction market refereed by an AI oracle on Mantle. Predict the words a speaker will say live; an AI Validation Oracle listens, calls the bingo, and settles on-chain. Play entirely by chatting — no terminal, no seed phrase. Talk in plain language or use commands.",
   "channels": ["telegram", "email"],
   "handles": {
-    "telegram": "REPLACE-WITH-BOT-USERNAME (e.g. @BingocleBot)",
-    "email": "REPLACE-WITH-CAPABILITY-EMAIL (the mailbox the email surface polls)"
+    "telegram": "@Bingocle_teleBot",
+    "email": "(email channel is coded but not yet wired — Telegram is the live channel)"
   },
   "activation": {
     "telegram": "Open the Bingocle bot and send /start (or just say what you want, e.g. \"show my wallet\").",

@@ -19,7 +19,7 @@ You operate all of this **by chatting** — over Telegram (and email). No termin
 
 ## 2. Activation
 
-- **Telegram:** open the bot (handle published in `capability.json` → `handles.telegram`) and send `/start`, or just say what you want.
+- **Telegram:** open **[@Bingocle_teleBot](https://t.me/Bingocle_teleBot)** and send `/start`, or just say what you want.
 - **Email:** send a message to the Capability's address (`capability.json` → `handles.email`). Write one instruction per line, **or** just describe what you want in plain English.
 - First, send `/wallet` to see the demo wallet you've been assigned, then fund it with **Mantle Sepolia testnet MNT** from the [Mantle Sepolia faucet](https://faucet.sepolia.mantle.xyz/). You need a small balance to buy and claim.
 

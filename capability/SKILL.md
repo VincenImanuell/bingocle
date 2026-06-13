@@ -23,8 +23,8 @@ Everything happens **in chat**. Each user gets an embedded **Mantle Sepolia test
 
 ## Activation
 
-- **Telegram:** open the Bingocle bot (handle in `capability.json` → `handles.telegram`) and send
-  `/start`, or just say what you want.
+- **Telegram:** open **[@Bingocle_teleBot](https://t.me/Bingocle_teleBot)** and send `/start`, or
+  just say what you want.
 - **Email:** message the capability address (`capability.json` → `handles.email`) — one command per
   line, or plain English.
 - Then `/wallet` to get your demo wallet and fund it from the
