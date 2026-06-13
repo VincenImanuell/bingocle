@@ -1,0 +1,89 @@
+# WordMarket
+
+`WordMarket` is Bingocle's dynamic-parimutuel trading engine. Each word in an event is an independent tradable outcome: buying mints shares along a linear bonding curve, selling burns them, and at settlement every validated word's holders split that word's reserve plus a pro-rata cut of the losing words' reserves. The design keeps the contract solvent by construction, which is enforced by a stateful invariant fuzzer.
+
+## Bonding Curve
+
+Each word has its own **linear price curve** `price = base + slope * supply / ONE`, so price rises with demand. The first time a word is touched, `_ensureCurve` freezes the curve parameters and never changes them again:
+
+```solidity
+uint256 internal constant ONE = 1e18;            // fixed-point scale
+uint256 internal constant PRICE_UP = 1e14;       // lift WordPool 1e4 price -> 1e18
+uint256 internal constant TARGET_SHARES = 1000e18; // price ~doubles after this many shares
+uint256 internal constant MAX_SUPPLY = 1e30;     // per-word supply cap (overflow guard)
+```
+
+- `base` is set from the WordPool opening price: `base = priceOf(eventId, w) * PRICE_UP` (lifting the `1e4`-scale price to `1e18`).
+- `slope = mulDiv(base, ONE, TARGET_SHARES)` (clamped to a minimum of `1`), so the price roughly doubles after `TARGET_SHARES` (about `1000e18`) shares are minted.
+
+> The opening price comes from `WordPool.priceOf` — see [WordPool](/contracts/word-pool). Words priced and curated by the AI Curator therefore open with different `base` values.
+
+The cost to move supply from `s0` to `s1` is the path-independent integral of the curve, implemented in `_cost`:
+
+```text
+cost = base * (s1 - s0) / ONE
+     + slope * (s1 + s0) * (s1 - s0) / (2 * ONE^2)
+```
+
+Because cost is the exact area under the curve, `reserve[eventId][w]` always equals that area, and the contract's token balance always equals `totalReserve[eventId] == sum of reserve[w]`.
+
+## Trading
+
+Trading is **fee-free**: `buy` collects exactly the curve cost into the reserve and `sell` refunds exactly the vacated area. Both are gated to the `Founder` and `Market` phases (see [EventFactory](/contracts/event-factory) for phase derivation).
+
+- During the **Founder** phase only a word's `founderOf(eventId, w)` may `buy` that word; any other caller reverts `BadPhase`.
+- For a **native** event (`token == address(0)`), `msg.value` must equal `cost` exactly, else `WrongValue`.
+- For an **ERC20** event, `msg.value` must be `0`, and the contract uses `safeTransferFrom` with a fee-on-transfer guard: it reverts `WrongValue` if the received balance delta differs from `cost`.
+- `buy` reverts `Slippage` if `cost > maxCost`; `sell` reverts `Slippage` if `refundAmt < minRefund`.
+- `sell` reverts `Insufficient` if the caller holds fewer than `sharesIn`, and clamps the refund to the word's `reserve` as an invariant guard.
+
+`claimFounderSeed(eventId, w)` records the founder free-seed flag (`hasFounderSeed`), a precondition for the [RewardVault](/contracts/reward-vault) seed payout. It is callable by the word's founder during `Founder` or `Market` and reverts `SeedTaken` if already claimed.
+
+## Settlement And Payouts
+
+`settle(eventId)` runs in the `Settled` phase and is idempotent via the `settled` flag. It reads the final `validatedBitmap` from the [OracleRegistry](/contracts/oracle-registry) and freezes the split:
+
+- `winnerReserveSum` — sum of reserves of validated words (the payout denominator).
+- `freedPool` — sum of reserves of losing words (the prize redistributed to winners).
+- `noWinners` — `true` when `winnerReserveSum == 0`.
+
+`redeem(eventId)` pays the caller for every validated word they hold. For each such word `w`:
+
+```text
+poolW  = reserve_w + freed * reserve_w / winnerReserveSum
+payout += poolW * userShares_w / supply_w
+```
+
+It calls `settle` lazily if needed, marks the caller `claimed`, decrements `totalReserve` by the payout, and pays out. It reverts `NoWinners` if no word validated, `AlreadyClaimed` on a second call, and `NothingToClaim` if the payout is zero.
+
+> Per-word `reserve[]` is intentionally **not** decremented on redeem/refund — only `totalReserve` is. So after settlement only `balance == totalReserve` holds, not `totalReserve == sum of reserve`. The pre-settlement invariant `balance == totalReserve == sum of reserve` is what the fuzzer verifies.
+
+## Function Reference
+
+| Function | Access | Phase | Effect |
+| --- | --- | --- | --- |
+| `buy(eventId, w, sharesOut, maxCost)` | Anyone (founder-only per word in Founder) | `Founder`, `Market` | Mint shares; collect exact curve cost |
+| `sell(eventId, w, sharesIn, minRefund)` | Share holder | `Founder`, `Market` | Burn shares; refund exact vacated area |
+| `claimFounderSeed(eventId, w)` | Word `founderOf` | `Founder`, `Market` | Record founder free-seed flag |
+| `settle(eventId)` | Anyone (idempotent) | `Settled` | Freeze winner/loser split |
+| `redeem(eventId)` | Share holder | `Settled` | Pay validated-word holders pro-rata |
+| `refundNoWinners(eventId)` | Share holder | `Settled` + `noWinners` | Reclaim own reserve share when nothing validated |
+| `refund(eventId)` | Share holder | `Cancelled` | Reclaim own reserve share at frozen supply |
+| `sweepResidual(eventId)` | Organizer | `Settled` + grace passed | Reclaim leftover `totalReserve` |
+
+## Refunds And Residual Sweep
+
+- `refundNoWinners(eventId)` is used when `noWinners` is set: each holder reclaims their own pro-rata reserve share via `_ownReserveShare`. Reverts `HasWinners` if any word validated.
+- `refund(eventId)` does the same in the `Cancelled` phase, at the frozen supply.
+- Both refund paths revert `AlreadyClaimed` on repeat and `AlreadySwept` if the residual was already swept.
+- `sweepResidual(eventId)` lets the organizer reclaim the leftover `totalReserve` (rounding dust plus abandoned positions). It requires `isOrganizer`, the `Settled` phase, and `block.timestamp >= disputeEnd + CLAIM_GRACE` where `CLAIM_GRACE = 30 days`; otherwise it reverts `GraceNotPassed`. After a sweep, late `redeem`/`refund` calls fail explicitly with `AlreadySwept` rather than an opaque underflow.
+
+## Solvency Invariant
+
+`Market.t.sol` proves the core safety property with a stateful invariant test (`MarketInvariantTest`) that drives random `buy`/`sell` calls across words through a handler and asserts, after every call:
+
+```text
+address(market).balance == totalReserve == sum over words of reserve[w]
+```
+
+`testFuzz_ReserveSolvent` proves the same for an arbitrary buy followed by a partial sell, and `test_MultiWordConservation` shows that the sum of all redeem payouts never exceeds the frozen reserve (off only by a few wei of rounding dust). This guarantees the market is always fully backed. For how this fits the broader trust assumptions, see the [Trust Model](/guides/trust-model).

@@ -1,0 +1,103 @@
+# Routes & Web3
+
+The Bingocle frontend is a Next.js app with three routes — a marketing landing page, a self-contained demo simulation, and the live on-chain game — wired to Mantle through wagmi and RainbowKit. This page documents each route and exactly how the live game reads and writes contracts.
+
+## Routes
+
+| Path | Component | Description |
+| --- | --- | --- |
+| `/` | `app/page.tsx` | Landing page composed of `TopBar`, `Hero`, `SectionNav`, `AboutSection`, `HowToPlay`, `GamePreview`, `BetaSignup`, and `Footer`. |
+| `/play` | `app/play/page.tsx` → `DemoGame` | Pure client-side simulation. No wallet or chain required. |
+| `/app` | `app/app/page.tsx` → `OnchainGame` | The live game wired to the Mantle Sepolia contracts. |
+
+Both `/play` and `/app` render a single `"use client"` component inside a dark full-screen `main`. See [Frontend Overview](/frontend/overview) for how these fit together.
+
+> The landing page outline lists `AboutSection` between `SectionNav` and `HowToPlay`; the actual JSX renders `AboutSection`, `HowToPlay`, and `GamePreview` inside the `midlands` main, with `BetaSignup` and `Footer` following.
+
+## Wallet & Chain Config
+
+`lib/wagmi.ts` builds the connector config with RainbowKit's `getDefaultConfig`:
+
+```ts
+export const wagmiConfig = getDefaultConfig({
+  appName: "Bingocle",
+  projectId,
+  chains: [mantleSepoliaTestnet, mantle],
+  ssr: true,
+});
+
+export const initialChain = mantleSepoliaTestnet;
+```
+
+- **Chains**: `mantleSepoliaTestnet` is listed first (the default target), followed by `mantle`. Both come from `wagmi/chains`.
+- **`initialChain`**: exported as `mantleSepoliaTestnet`.
+- **`ssr: true`**: enables server-side rendering support.
+- **WalletConnect `projectId`**: read from `NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID`, falling back to the literal string `"bingocle-dev-placeholder"`.
+
+> The placeholder project id is not a real WalletConnect Cloud id. Injected and browser wallets work without it; WalletConnect QR wallets require a real id set in `.env.local`. See [Security](/guides/security).
+
+## Contract Addresses & Agent API
+
+`lib/contracts.ts` holds addresses, minimal ABIs (via viem `parseAbi`), the agent URL, and the `EventRecord` fetch helper. Each address defaults to the **live Mantle Sepolia deployment** so production works with no extra config, and each is overridable via a `NEXT_PUBLIC_*` env var.
+
+| Key | Env override | Default address |
+| --- | --- | --- |
+| `eventFactory` | `NEXT_PUBLIC_EVENT_FACTORY` | `0x4ded43273E1b3be15bBBF1A5cE9494f77B045Afb` |
+| `wordPool` | `NEXT_PUBLIC_WORD_POOL` | `0x1F0BebC4D0f7C4B8428Ac2FE14BBeb2178e63C29` |
+| `wordMarket` | `NEXT_PUBLIC_WORD_MARKET` | `0x2a853222d57d28a713F45b8F78503376ccF5471b` |
+| `oracleRegistry` | `NEXT_PUBLIC_ORACLE_REGISTRY` | `0xe998c6F467876b2dA1C5D126EA5576A6943c2073` |
+| `bingoCardNFT` | `NEXT_PUBLIC_BINGO_CARD_NFT` | `0x1A7643b31EfD272F65fe7D8653fE35172284A1F3` |
+| `rewardVault` | `NEXT_PUBLIC_REWARD_VAULT` | `0x0B0766bF126180730E408105C35A761D7AADe968` |
+
+The agent base URL is `AGENT_API`, read from `NEXT_PUBLIC_AGENT_API` and defaulting to `https://bingocle-production.up.railway.app`. For local dev, set `NEXT_PUBLIC_AGENT_API=http://localhost:8787`.
+
+Off-chain word labels and odds (the chain only stores word hashes) are resolved via `fetchEventRecord(eventId)`, which calls `GET ${AGENT_API}/events/${eventId}` and returns `json.record ?? null`, or `null` on any error. The returned `EventRecord` carries `eventId`, `theme`, `words`, and an `odds` array of `{ word, aiProb, price1e4, mult1e4 }`. See the [Agent HTTP API](/agent/http-api).
+
+## The Live OnchainGame
+
+`OnchainGame.tsx` is the heart of `/app`. It reads on-chain state with wagmi's `useReadContract` / `useReadContracts` and submits transactions with `useWriteContract` plus `useWaitForTransactionReceipt`. React Query handles polling via `refetchInterval` and `keepPreviousData`.
+
+### Reads
+
+| State | Source | Function | Refetch |
+| --- | --- | --- | --- |
+| Lobby event count | `eventFactory` | `eventCount` | `10000` ms |
+| Per-event lobby phase | `eventFactory` | `phaseOf` | `10000` ms |
+| Phase / pool meta + config | `eventFactory`, `wordPool` | `phaseOf`, `wordCount`, `isCommitted`, `getConfig` | `7000` ms |
+| Spot prices | `wordMarket` | `spotPrice` | `7000` ms |
+| Your shares | `wordMarket` | `sharesOf` | `7000` ms |
+| Card ownership | `bingoCardNFT` | `hasCard`, `cardOf` | `10000` ms |
+| Card cells + marks | `bingoCardNFT` | `cardCells`, `markedMask` | `7000` ms |
+| Redeemable preview | `wordMarket` | `previewRedeem` | `10000` ms |
+
+The contract phase index maps through the `PHASES` tuple (`None`, `Submission`, `Founder`, `Market`, `Live`, `Dispute`, `Settled`, `Cancelled`) and `contractToUi` collapses it to the six UI steps (`event`, `words`, `curate`, `market`, `live`, `settled`).
+
+> Refetch intervals are hardcoded: roughly `7000` ms for prices, shares, meta, and card view, and `10000` ms for the event count, lobby phases, card ownership, and redeemable preview.
+
+### Per-Phase Countdown
+
+A `setInterval` ticks `nowSec` every second. The component reads the active phase's deadline from the `getConfig` struct — `submissionEnd`, `founderEnd`, `marketLock`, `eventEnd`, or `disputeEnd` — and renders `secsLeft` as `m:ss`.
+
+### Writes
+
+| Action | Contract | Calls |
+| --- | --- | --- |
+| Mint card | `bingoCardNFT` | `mint(eventId)` |
+| Buy shares | `wordMarket` | quotes via `quoteBuy`, then `buy(eventId, word, sharesOut, maxCost)` with `value` |
+| Sell shares | `wordMarket` | `sell(eventId, word, sharesIn, minRefund)` (min refund `0`) |
+| Claim | `wordMarket`, `rewardVault` | `settle`, then `redeem`, then `claim` |
+
+`claim()` is resilient: it calls `settle(eventId)` once (a no-op if already settled), then independently attempts `redeem(eventId)` (prediction payout from the market reserve) and `rewardVault.claim(eventId)` (the bingo bonus from the sponsor pool). Each is wrapped so one failing does not block the other; if neither succeeds, the user sees a clear "nothing claimable" message noting the bonus pool may be empty.
+
+Word submission during the `Submission` phase is off-chain: `submitWordToAgent()` POSTs `{ word, player }` to `${AGENT_API}/events/${eventId}/submit`.
+
+## The DemoGame Simulation
+
+`DemoGame.tsx` (`/play`) is a pure client simulation with **no chain calls** — it only reads `useAccount` to label the player, and a wallet is optional. It scripts event creation, word submission with an optional IPO pre-order, AI curation, a fluctuating market, a live transcript, and settlement, all in React state.
+
+Its data and logic live in two files:
+
+- `components/app/data.ts` supplies `ORACLE_SCRIPT` (timed validation events keyed by `charPos`), `SPEECH_TEXT` (the typewriter transcript), `BASE_POOL`, `DEMO_EVENT`, `STARTING_BALANCE`, `RIVALS`, and curation copy.
+- `components/app/engine.ts` supplies the pure logic: `makeCard` uses a `mulberry32(seed)` PRNG to shuffle the 24-word deck and splice the free star into the center. Bonus amounts are fixed cosmetic values in `bonusesFor` — `50`, `75`, `100`, and `500`.
+
+> The demo's `mulberry32` card shuffle intentionally does **not** match the on-chain Fisher-Yates layout used by the real `bingoCardNFT`. Demo balances, IPO orders, and bonus payouts are cosmetic and denominated in fake USDC. For the trust guarantees of the real flow, see [Security](/guides/security).

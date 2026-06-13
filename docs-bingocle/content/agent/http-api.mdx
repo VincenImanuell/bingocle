@@ -1,0 +1,70 @@
+# HTTP API
+
+The Bingocle agent ships an Express service (`agent/src/server.ts`) that exposes the AI pipeline and on-chain writes as a small REST API. It is the bridge between off-chain surfaces (the web app, the Telegram bot, email) and the Mantle contracts. See [/agent/overview](/agent/overview) for how the curator, odds engine, and oracle fit together.
+
+## Server Basics
+
+- **Default port:** `8787`, overridable with the `PORT` env var (`config.port`).
+- **CORS:** enabled for all methods used here (`GET,POST,OPTIONS`). The allowed origin comes from `CORS_ORIGIN` and **defaults to `*`** for the open testnet demo.
+- **Body parsing:** JSON only, with a `1mb` limit.
+- **Errors:** every handler is wrapped so any thrown error is logged and returned as a blanket HTTP `500` with shape `{ "error": "<message>" }`. A few endpoints return `400` with a `reason` for bad input.
+
+## Endpoints
+
+| Method | Path | Body | Purpose |
+| --- | --- | --- | --- |
+| `GET` | `/health` | none | Liveness probe; returns chain + model info. |
+| `POST` | `/events` | `CreateEventInput` (+ `theme`, `rewardFundMnt`) | Create an event on-chain and auto-fund its reward pool. |
+| `GET` | `/events` | none | List all locally stored event records. |
+| `GET` | `/events/:id` | none | Return the stored record plus live on-chain `phase`. |
+| `POST` | `/events/:id/submit` | `{ word, player? }` | Append a predicted word to the event's submission inbox. |
+| `POST` | `/events/:id/commit-pool` | `{ theme?, description?, submissions? }` | Run curate → odds → commit the frozen pool on-chain. |
+| `POST` | `/events/:id/validate` | `{ transcript, minConfidence? }` | Run the validation oracle and commit confident matches. |
+| `GET` | `/events/:id/card/:address` | none | Live card view: cells, labels, and marked mask. |
+| `POST` | `/events/:id/sync-pool` | `{ words, price1e4?, mult1e4? }` | Backfill word labels/odds for a pool committed directly on-chain. |
+
+### GET /health
+
+Returns `{ ok: true, chainId, model }`, reading `config.chainId` and `config.model` (the Gemini model, default `gemini-2.5-flash`).
+
+### POST /events
+
+Calls `createEvent` (`agent/src/services/event.ts`), which:
+
+- reads the latest block timestamp and derives the five phase deadlines (`submissionEnd`, `founderEnd`, `marketLock`, `eventEnd`, `disputeEnd`) from per-phase minute lengths in the body;
+- builds the bonus tuple `[line, diagonal, doubleLine, fullCard]` (defaults `5/7/10/50` MNT) and calls `EventFactory.createEvent(...)` with `25` words per card and `maxWordsPerUser` (default `3`);
+- parses the `EventCreated` log for the new `eventId` (falling back to `eventCount()`), returning `{ eventId, txHash }`.
+
+The handler then records the `theme`, opens a submissions inbox, and **auto-funds the RewardVault pool**: it reads `rewardFundMnt` from the body or the `REWARD_FUND_MNT` env (**default `30`**, `0` to skip) and calls `RewardVault.fund(eventId, amt, { value: amt })` from the agent wallet. The response adds `{ theme, rewardFunded }`.
+
+> **Security warning.** `POST /events` has **no authentication**, CORS is **open by default**, and it spends native MNT from the agent **hot wallet on every successful call**. `POST /events/:id/sync-pool` likewise has **no access control** and overwrites the stored record. Lock down `CORS_ORIGIN`, gate these routes, and budget the hot wallet before any public deployment. See [/guides/security](/guides/security).
+
+### GET /events and GET /events/:id
+
+`GET /events` returns `listEvents()` from the in-memory store. `GET /events/:id` returns `{ record, phase }`, where `record` is the stored entry (or `null`) and `phase` is the human-readable lifecycle phase from `phaseOf(id)` (`Submission`, `Founder`, `Market`, `Live`, `Dispute`, `Settled`, ...).
+
+### POST /events/:id/submit
+
+Validates that `word` is present and at most `40` characters (else `400` with `reason`), then appends `{ raw, wallet, ts }` to the event's inbox via `addSubmission`. The bot keeps its own inbox; both are merged at commit time. Returns `{ ok: true }`.
+
+### POST /events/:id/commit-pool
+
+Merges any `submissions` from the body with those collected via `/submit`, then runs `curateAndCommit` (`agent/src/services/pool.ts`):
+
+1. `curate(...)` builds the word pool (must be at least `24` words, else it throws);
+2. `computeOdds(...)` produces `price1e4` / `mult1e4` per word;
+3. each word is hashed with `wordHash`, and an order-sensitive `merkleRoot(words)` is computed;
+4. `WordPool.commitPool(eventId, hashes, prices, mults, founders, root)` is sent on-chain;
+5. the record is persisted with `committedTx` and returned.
+
+### POST /events/:id/validate
+
+Calls `validateTranscript` (`agent/src/services/oracleRun.ts`): it reads the on-chain `validatedBitmap`, runs the Gemini oracle (`matchTranscript`) against the pool excluding already-validated indices, then for each match whose `confidence` is at least `minConfidence` (**default `0.6`**) sends `OracleRegistry.commitValidation(eventId, wordIndex, conf1e4, snippet)`. Confidence is scaled by `SCALE` (`10000`). Responds with `{ commits }`, each carrying a `txHash`. See [/agent/validation-oracle](/agent/validation-oracle).
+
+### GET /events/:id/card/:address
+
+Reads the player's card from `BingoCardNFT`. If `hasCard(id, address)` is false it returns `{ hasCard: false }`. Otherwise it returns the `tokenId`, the raw `cells`, human `labels` (index `255` renders as `FREE`, others map to stored words or `#<index>`), and the numeric `markedMask`.
+
+### POST /events/:id/sync-pool
+
+Requires a non-empty `words` array (else `400`). It writes a stored record using `price1e4` (default `5000`) and `mult1e4` (default `20000`) for every word, with zero-address founders, so the web app can show real words and multipliers for a pool that was committed straight to the chain. Returns `{ ok: true, words: <count> }`.

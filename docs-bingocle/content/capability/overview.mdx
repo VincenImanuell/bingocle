@@ -1,0 +1,67 @@
+# Capability Overview
+
+The **Capability** is Bingocle's consumer surface — the Part B deliverable — a Minds Bazaar skill that lets anyone play the entire game over chat. It is a [Telegraf](https://telegraf.js.org/)-based Telegram bot with a second email channel that is coded but not yet wired, so Telegram is the live surface.
+
+## What It Is
+
+The Capability wraps the whole game loop into a conversation: create or join an event, submit and found words, buy positions on a bonding curve, mint a bingo card NFT, watch it mark live as the AI oracle validates, and claim winnings. Every chat user gets a **per-user embedded testnet demo wallet** (no seed phrase, no browser extension), so onboarding feels like Web2.
+
+Players talk in **plain language** (for example, "show my wallet", "buy 2 shares of airdrop in event 1") or use the precise slash commands — both work. See [Commands](/capability/commands) for the full verb list and [Wallets and NLU](/capability/wallets-and-nlu) for how demo wallets are derived and how free text is mapped to a verb.
+
+## The Manifest
+
+`capability.json` is the Minds Bazaar manifest that describes the skill to the marketplace.
+
+| Field | Value |
+|---|---|
+| `name` | `Bingocle` |
+| `publicId` | `bingocle` |
+| `version` | `0.1.0` |
+| `channels` | `["telegram", "email"]` |
+| `chain` | `Mantle`, `Sepolia testnet`, `chainId 5003` |
+| `naturalLanguage` | `true` |
+| `track` | `Consumer & Viral DApps (Animoca Minds)` |
+
+> The manifest also declares the published `commands` array (with each command's `name`, `who`, optional `args`, and `summary`) plus the Telegram handle `@Bingocle_teleBot`. The email handle is explicitly marked as coded but not yet wired.
+
+`SKILL.md` is the skill description consumed by Minds: a YAML frontmatter block (`name`, `description`, `license: MIT`, and a `metadata` map with `publicId`, `version`, `channels`, `chain`, and `track`) followed by prose covering the game, command table, lifecycle, rewards, and self-hosting.
+
+`AGENT-GUIDE.md` is a self-contained operator playbook — any Mind or human can read it top to bottom and run a full game. It is also served in-chat through the `/agentguide` command.
+
+## Configuration
+
+`config.ts` is the single source of environment variables. All values fall back to defaults via `??`, so the bot boots even when most are unset.
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `TELEGRAM_BOT_TOKEN` | `""` | Telegram bot auth |
+| `AGENT_API_URL` | `http://localhost:8787` | Agent service base URL |
+| `MANTLE_RPC_URL` | `https://rpc.sepolia.mantle.xyz` | JSON-RPC endpoint |
+| `CHAIN_ID` | `5003` | Mantle Sepolia chain id |
+| `DEMO_WALLET_MNEMONIC` | `""` | Seed for deriving per-user demo wallets |
+| `GEMINI_API_KEY` | `""` | Optional natural-language understanding |
+| `GEMINI_MODEL` | `gemini-2.5-flash` | Gemini model used for NLU |
+
+Contract addresses live under `config.addresses`: `eventFactory`, `wordPool`, `wordMarket`, `oracleRegistry`, `bingoCardNFT`, `rewardVault`, and `agentIdentity` (each from its `*_ADDRESS` env var). The email channel reads `config.email` — IMAP host/port/user/pass for polling in and SMTP host/port/user/pass plus `EMAIL_FROM` for replies, with `EMAIL_POLL_MS` (default `15000`).
+
+> Without `GEMINI_API_KEY` the Capability still works fully: free-text NLU is disabled and a deterministic slash/verb fallback handles every command.
+
+## Split Architecture: Organizer vs Player Verbs
+
+This is the core design decision. The Capability routes verbs down two different paths:
+
+- **Organizer and AI verbs** (`create`, `finalize`, `validate`, plus `pool` reads) are **forwarded over HTTP to the agent service** at `AGENT_API_URL`. The agent holds the Gemini keys and the organizer wallet, so it must be reachable as a public HTTPS URL — it cannot be `localhost` for remote players. See the [Agent HTTP API](/agent/http-api).
+- **Player verbs** (`wallet`, `card`, `buy`, `sell`, `claim`, `price`) run **directly on-chain** through the per-user demo wallet and the public RPC. As a result, trading and claiming survive agent downtime — only organizer/AI actions depend on the service being up.
+
+Because the Capability embeds **human-readable ABI fragments** (`src/abis.ts`), it needs no Foundry build and no contract repo checkout to call the chain.
+
+```text
+player verb  →  demo wallet  →  RPC  →  Mantle contracts   (no agent needed)
+organizer/AI →  HTTP POST    →  agent service (HTTPS)       (agent required)
+```
+
+## Not Enforced in Code
+
+The organizer-versus-player distinction is a **convention**, not a permission boundary. The `who` field in the manifest is documentation only — **any chat user can invoke organizer verbs** such as `/create`, `/finalize`, and `/validate`. There is no role check in the bot. Treat this as a known trust assumption of the testnet demo and see [Security](/guides/security) for the full threat model.
+
+> Everything runs on **testnet MNT only**. `DEMO_WALLET_MNEMONIC` derives throwaway wallets — never point it at a seed holding real value.

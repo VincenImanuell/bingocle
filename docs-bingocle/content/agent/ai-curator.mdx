@@ -1,0 +1,86 @@
+# AI Curator
+
+The AI Word Curator turns raw player submissions into a clean, canonical bingo word pool. It pairs one Gemini call for fuzzy classification with a deterministic aggregation step that counts votes, assigns founders, and seeds filler words so every pool reaches its target size.
+
+## Overview
+
+Source lives in `agent/src/ai/curator.ts`. The module exports two functions and the types that describe the pool:
+
+| Export | Kind | Role |
+| --- | --- | --- |
+| `curate(args)` | `async` | Full pipeline: calls Gemini, then aggregates into a final pool. |
+| `aggregate(subsSorted, decisions, suggested, poolSize)` | pure | Deterministic vote counting, founder tracking, and filler seeding. |
+| `Submission` | type | `{ raw, wallet, ts }` — one raw player entry. |
+| `CuratedWord` | type | `{ word, votes, founder, aiSuggested }` — one pool slot. |
+| `Decision` | type | Per-submission audit record (see below). |
+| `CurationResult` | type | `{ pool, decisions }` returned by `curate`. |
+
+A **submission** is a single word or short phrase a player predicts a speaker will say out loud during a live event. Curation collapses synonyms, drops spam, and rounds out the pool with AI-suggested words.
+
+## The Gemini Call
+
+`curate()` builds a prompt from the event `theme`, `description`, and the timestamp-sorted submissions, then delegates to `structured()` in `agent/src/ai/gemini.ts`. That helper:
+
+- Loads the model from `config.model` and sets the curator's `SYSTEM` text as the `systemInstruction`.
+- Forces JSON output via `generationConfig.responseMimeType = "application/json"` with `maxOutputTokens` (the curator passes `8000`).
+- Appends the JSON schema to the user message and validates the parsed reply with a **Zod** schema (`zodSchema.parse`). Non-JSON output throws `Gemini returned non-JSON output: ...`.
+
+The curator asks Gemini for a `decisions` array plus a `suggested` array of 8-15 extra on-theme words.
+
+> The system prompt only *suggests* limits like "max ~18 chars" and "8-15" suggested words. These are soft hints, not hard constraints — the actual pool size and word count are enforced by `aggregate()`, not by Gemini. There is also **no retry or backoff** for Gemini rate limits or transient errors; a failed call propagates as a thrown error.
+
+## Decision Types
+
+Each submission is classified into one of three statuses (`z.enum(["accepted", "merged", "rejected"])`):
+
+| Status | Meaning | `canonical` |
+| --- | --- | --- |
+| `accepted` | A valid, on-theme, distinct word. | Set to its normalized Title-Case form (e.g. `"ai"` becomes `"AI"`). |
+| `merged` | A synonym, acronym, or spelling variant of an accepted word. | Set to the **same** canonical the other word uses. Its vote still counts. |
+| `rejected` | Profanity, spam, links, stopwords, or off-theme. | Omitted; `reason` is set instead. |
+
+## The Founder Rule
+
+The **founder** of a canonical word is the **earliest submitter** (smallest `ts`) whose submission maps to that canonical. `curate()` sorts submissions ascending by `ts` before processing, so the first occurrence of any canonical is its founder — making the result reproducible without a database.
+
+In `aggregate()`:
+
+- The first submission mapping to a canonical creates the entry with `votes: 1` and `founder: <wallet>`.
+- Every later submission mapping to the same canonical increments `votes` only; the founder seat does not change.
+- `rejected` submissions and any decision missing a `canonical` are skipped entirely.
+
+The unit tests in `agent/test/logic.test.ts` lock this in: given `ai` (`ts: 1`, Alice) and `AI` (`ts: 2`, Bob) both mapping to `"AI"`, the founder is `0xAlice` and `votes` is `2`.
+
+## Filler Seeding And Output Shape
+
+After real submissions are tallied, `aggregate()` walks the `suggested` array and seeds AI fillers until the pool reaches `poolSize` (default `24`):
+
+```ts
+for (const w of suggested) {
+  if (byCanonical.size >= poolSize) break;
+  const key = w.trim();
+  if (!key || byCanonical.has(key)) continue;
+  byCanonical.set(key, { word: key, votes: 0, founder: "", aiSuggested: true });
+}
+return [...byCanonical.values()].sort((a, b) => b.votes - a.votes).slice(0, 40);
+```
+
+- Fillers have `votes: 0`, an empty `founder` (`""`), and `aiSuggested: true`.
+- The pool is sorted **vote-descending**, then hard-capped at **40 words** for on-chain gas via `.slice(0, 40)`.
+
+> The `poolSize` argument only bounds **filler** seeding. Real accepted/merged words are never dropped to fit `poolSize`; the only ceiling on the full pool is the fixed `40`-word cap.
+
+`curate()` returns:
+
+```ts
+type CurationResult = {
+  pool: CuratedWord[];   // final pool, vote-desc, capped at 40
+  decisions: Decision[]; // per-submission audit trail
+};
+```
+
+The `decisions` trail is the verbatim Gemini output, giving a transparent record of why each submission was accepted, merged, or rejected.
+
+## Downstream
+
+The curated `pool` feeds the [Odds Engine](/agent/odds-engine), which prices each word, and is published on-chain to the [Word Pool](/contracts/word-pool) contract. The founder and vote data carried on each `CuratedWord` flow through to reward distribution.

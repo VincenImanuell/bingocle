@@ -1,0 +1,94 @@
+# BingoCardNFT
+
+`BingoCardNFT` is a soulbound ERC-721 that issues one bingo card per `(eventId, player)`. Each card's 5x5 layout is shuffled deterministically from an on-chain seed and frozen at mint, so the token is the canonical board that settlement reads.
+
+## Overview
+
+The contract (`contracts/src/BingoCardNFT.sol`) extends OpenZeppelin's `ERC721` and implements `IBingoCardNFT`. It is named `"Bingocle Card"` with symbol `"BCARD"` and holds a single immutable reference to the `IEventFactory`, which it uses to resolve the `WordPool` and `OracleRegistry` module addresses at runtime.
+
+Internal state:
+
+- `_cells` — `mapping(uint256 => uint8[25])`, the frozen card layout per `tokenId`.
+- `eventOf` — public `mapping(uint256 => uint256)`, `tokenId` to `eventId`.
+- `_cardOf` — `mapping(uint256 => mapping(address => uint256))`, the one card per `(eventId, player)`.
+- `tokenCount` — public running counter; the next minted `tokenId` is `++tokenCount`, so token IDs start at `1` and `0` means "no card".
+
+## Minting
+
+`mint(uint256 eventId)` mints the caller's card and returns the new `tokenId`. It enforces, in order:
+
+1. `factory.exists(eventId)` — else reverts `NotExist`.
+2. `WordPool.isCommitted(eventId)` — else reverts `NotCommitted`.
+3. `factory.phaseOf(eventId)` is `Phase.Founder` or `Phase.Market` — else reverts `BadPhase`.
+4. `_cardOf[eventId][msg.sender] == 0` — else reverts `AlreadyMinted` (one card per wallet per event).
+
+The seed is computed on-chain as:
+
+```solidity
+uint256 seed = uint256(
+    keccak256(
+        abi.encode(eventId, msg.sender, blockhash(block.number - 1), block.prevrandao, tokenCount)
+    )
+);
+uint8[25] memory cells = BingoLib.buildCard(wordCount, seed);
+```
+
+After building the layout it sets `tokenId = ++tokenCount`, stores the cells, records `eventOf` and `_cardOf`, calls `_safeMint`, and emits `CardMinted(eventId, player, tokenId)`.
+
+> The seed blends the `eventId`, the player, the previous block hash, `block.prevrandao`, and the live `tokenCount`. Each card therefore gets a distinct, hard-to-grind layout that is fixed forever once minted.
+
+## Soulbound Transfers
+
+Cards are non-transferable. The `_update` override calls `super._update` and then reverts `Soulbound` whenever both `from` and `to` are non-zero. Only mint (`from == address(0)`) and burn (`to == address(0)`) are permitted. Because the soulbound card stays with its original minter, settlement in the [RewardVault](/contracts/reward-vault) always pays the wallet that actually played.
+
+## Card Layout and the FREE Center
+
+The layout is produced by `BingoLib.buildCard(wordCount, seed)` (`contracts/src/lib/BingoLib.sol`):
+
+- It runs a **Fisher-Yates shuffle** over `[0, wordCount)`, drawing fresh entropy each step via `keccak256(abi.encode(seed, i))`.
+- The first 24 shuffled word indices fill the non-center cells; the center cell (index `12`) is set to `FREE`, the sentinel value `255`.
+- It requires `wordCount >= 24` (reverts `"pool<24"`) and `wordCount <= 254` (reverts `"pool>254"`), since `255` is reserved for `FREE`.
+
+The grid is row-major: indices `0..4` are row 0, `5..9` row 1, and so on, with index `12` at the center.
+
+```text
+ 0  1  2  3  4
+ 5  6  7  8  9
+10 11 12 13 14    (12 = FREE)
+15 16 17 18 19
+20 21 22 23 24
+```
+
+> The on-chain `cardCells(tokenId)` layout is the single source of truth. UIs MUST render that array and must NOT recompute a layout locally, or the displayed board will not match settlement.
+
+## Live Board State
+
+`markedMask(tokenId)` returns a `uint32` 25-bit mask of which cells are currently marked. It reads `IOracleRegistry.validatedBitmap(eventId)` from the registry resolved via `factory.oracleRegistry()`, then folds it against the card with `BingoLib.markedFromCard(cells, validatedBitmap)`. A cell's bit is set when its word index appears in the validated bitmap; the center cell always counts as marked. See the [OracleRegistry](/contracts/oracle-registry) for how words become validated.
+
+## On-Chain Metadata
+
+`tokenURI(tokenId)` returns a fully on-chain `data:application/json;base64,` URI. It builds a JSON object (name, description, and `Event` / `Marked` attributes) embedding a Base64-encoded SVG. The `Marked` attribute uses an internal `_popcount` over `markedMask(tokenId)`, so wallets can render the card and its current mark count with no external server.
+
+## View Functions
+
+| Function | Returns | Notes |
+| --- | --- | --- |
+| `mint(uint256 eventId)` | `uint256 tokenId` | Mints in `Founder`/`Market` phase; one per wallet per event. |
+| `cardOf(uint256 eventId, address player)` | `uint256` | The player's `tokenId`, or `0` if none. |
+| `hasCard(uint256 eventId, address player)` | `bool` | True when a card exists for `(eventId, player)`. |
+| `cardCells(uint256 tokenId)` | `uint8[25]` | Frozen canonical layout; `cells[12] == 255` (FREE). |
+| `markedMask(uint256 tokenId)` | `uint32` | 25-bit live mask from the validated bitmap. |
+| `tokenURI(uint256 tokenId)` | `string` | Base64 JSON + SVG, fully on-chain. |
+| `eventOf(uint256 tokenId)` | `uint256` | Event this card belongs to. |
+| `tokenCount()` | `uint256` | Total cards minted; last assigned `tokenId`. |
+
+## Shared Bingo Math
+
+Beyond `buildCard` and `markedFromCard`, `BingoLib` also provides the pure bingo math consumed by the [RewardVault](/contracts/reward-vault):
+
+- `lineMasks()` — the 12 winning lines (5 rows, 5 columns, 2 diagonals at indices `10` and `11`).
+- `withFreeCenter`, `completedLineCount`, `hasDiagonal`, `isFull` — line and diagonal detection with the FREE center forced on.
+- `earnedTiers(uint32 marked)` — the `TIER_LINE`, `TIER_DIAG`, `TIER_DOUBLE`, and `TIER_FULL` flags a card qualifies for.
+- `bonusAmount(uint8 newlyEarned, BonusTiers b)` — token payout for newly-earned tiers.
+
+Keeping this math in one library ensures the NFT, the settlement vault, and the front-end engine all agree cell-for-cell.

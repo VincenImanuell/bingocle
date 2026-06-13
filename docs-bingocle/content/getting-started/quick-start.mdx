@@ -1,0 +1,107 @@
+# Quick Start
+
+Get the full Bingocle stack — contracts, agent, capability, and web app — running in
+four steps.
+
+## Prerequisites
+
+- **Node.js** 18+ and npm
+- **Foundry** (`forge`, `cast`, `anvil`): [install guide](https://book.getfoundry.sh/getting-started/installation)
+- A **Gemini API key** (`GEMINI_API_KEY`) for the Curator / Odds / Oracle agents
+- A funded **Mantle Sepolia** private key for deploying and for the agent signer
+  (chainId `5003`, RPC `https://rpc.sepolia.mantle.xyz`)
+
+> The contracts are already live on Mantle Sepolia (see
+> [Introduction](/getting-started/introduction#deployed-addresses-mantle-sepolia)).
+> You only need to deploy your own copy if you want a fresh instance.
+
+## Step 1: Build, test, and deploy the contracts
+
+```bash
+cd contracts
+forge build
+forge test          # 22 tests incl. a stateful solvency invariant
+```
+
+Deploy to Mantle Sepolia. The script broadcasts `Deploy.s.sol`, then writes the
+resulting addresses into `agent/.env`, `capability/.env`, and `frontend/.env.local`
+for you:
+
+```bash
+PRIVATE_KEY=0x... AGENT_ADDRESS=0x... RPC_URL=https://rpc.sepolia.mantle.xyz \
+  scripts/deploy.sh --broadcast --verify
+```
+
+`Deploy.s.sol` wires every module into the `EventFactory` registry, registers
+`AGENT_ADDRESS` as the ERC-8004 oracle identity, and designates it as the `WordPool`
+curator.
+
+## Step 2: Run the agent service
+
+The agent hosts the three AI roles and signs on-chain transactions with the oracle
+wallet.
+
+```bash
+cd agent
+cp .env.example .env   # set GEMINI_API_KEY, AGENT_PRIVATE_KEY, and addresses
+npm install
+npm run start          # HTTP API on http://localhost:8787
+```
+
+## Step 3: Run the Capability (Telegram bot)
+
+```bash
+cd capability
+cp .env.example .env   # TELEGRAM_BOT_TOKEN, AGENT_API_URL, DEMO_WALLET_MNEMONIC
+npm install
+npm run start
+```
+
+Players talk to the bot; organizer / AI verbs (`/create`, `/finalize`, `/validate`)
+are forwarded to the agent service, while player verbs (`/buy`, `/card`, `/claim`) go
+directly on-chain through per-user demo wallets.
+
+## Step 4: Run the web app
+
+```bash
+cd frontend
+npm install
+npm run dev            # landing at /, demo at /play, live market at /app
+```
+
+`scripts/deploy.sh` already populated `frontend/.env.local` with the
+`NEXT_PUBLIC_*` contract addresses.
+
+## First steps
+
+Once everything is up, try the local end-to-end harness — it runs a complete event
+lifecycle (create → fund → commit pool → buy → mint card → validate → settle → claim)
+against a local chain:
+
+```bash
+cd agent
+npm run e2e:local
+```
+
+Then create a real demo event on Mantle Sepolia and watch the prices move:
+
+```bash
+npm run demo:event                       # creates + funds an event, commits a pool
+EVENT_ID=<id> npx tsx scripts/trade-bot.ts   # keeps bonding-curve prices fluctuating
+```
+
+## Environment variables
+
+| Variable | Service | Purpose |
+|---|---|---|
+| `GEMINI_API_KEY` | agent, capability | Gemini `2.5-flash` for curation, odds, oracle, and NLU |
+| `AGENT_PRIVATE_KEY` | agent | Signs pool commits and oracle verdicts (the ERC-8004 oracle wallet) |
+| `RPC_URL` | agent, contracts | Mantle Sepolia RPC endpoint |
+| `TELEGRAM_BOT_TOKEN` | capability | Telegram bot credentials |
+| `AGENT_API_URL` | capability | Public URL of the agent HTTP API |
+| `DEMO_WALLET_MNEMONIC` | capability | Master seed for per-user demo wallets (testnet only) |
+| `NEXT_PUBLIC_AGENT_API` | frontend | Agent API base URL for off-chain word labels |
+| `NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID` | frontend | WalletConnect project id |
+
+See [Local Development](/guides/local-development) for the full anvil workflow and
+[Deployment](/contracts/deployment) for verifying contracts on Mantlescan.

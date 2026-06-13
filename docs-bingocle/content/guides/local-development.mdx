@@ -1,0 +1,80 @@
+# Local Development
+
+A practical guide to building, testing, and exercising Bingocle on your own machine — from compiling the contracts with Foundry to driving the full game loop against a local chain, then seeding a live testnet demo with bot-generated activity.
+
+## Build And Test The Contracts
+
+The `contracts/` package uses Foundry (configured in `contracts/foundry.toml`: `solc` 0.8.28, `via_ir = true`, `optimizer_runs = 200`, `evm_version = "cancun"`).
+
+```bash
+cd contracts
+forge build
+forge test
+```
+
+`forge test` runs **22 tests** across `test/Bingocle.t.sol` and `test/Market.t.sol`. The market suite includes a fuzz test (`testFuzz_ReserveSolvent`) and a **stateful solvency invariant** (`invariant_balanceEqualsReserve`) that asserts the `WordMarket` contract balance always equals its tracked reserve across randomized call sequences — the core guarantee that trading payouts can never overdraw the pool.
+
+> The invariant is what makes the bonding-curve market safe to trust: no sequence of buys, sells, and redeems can leave the contract insolvent. See [/guides/trust-model](/guides/trust-model).
+
+## End-To-End Local Harness
+
+`agent/scripts/e2e-local.ts` (npm script `e2e:local`) drives the **entire lifecycle** against a local `anvil` node. It exercises the real agent ethers wiring — `createEvent` struct/tuple encoding, `EventCreated` log parsing, and every market call — against deployed bytecode, with **no Gemini and no testnet**.
+
+Because anvil lets you control block time, the harness uses `evm_setNextBlockTimestamp` followed by `evm_mine` to jump deterministically into each phase, reading the on-chain schedule from `EventFactory.getConfig` to land exactly inside `Founder`, `Market`, `Live`, and `Settled`.
+
+The sequence it walks:
+
+- `createEvent` (1-minute windows for each phase)
+- `RewardVault.fund` — funds the reward/sponsor pool (60 MNT)
+- `WordPool.commitPool` — commits a **hand-built 24-word pool** (`Word0`..`Word23`), skipping the AI curator
+- `WordMarket.claimFounderSeed` then `buy` (and a `sell` + re-buy to move the curve)
+- `BingoCardNFT.mint`
+- `OracleRegistry.commitValidation`
+- `WordMarket.settle` then `redeem`, and `RewardVault.claim`
+
+**Prerequisites:** anvil running, `Deploy.s.sol` broadcast to it, and `agent/.env` pointed at the anvil RPC.
+
+```bash
+cd agent
+npm run e2e:local
+```
+
+This validates the full contract-to-agent integration without any external dependencies. For the contract addresses and deploy script, see [/contracts/deployment](/contracts/deployment).
+
+## Testnet Demo Scripts
+
+These scripts target **Mantle Sepolia** (chain 5003) and are env-driven. They require `agent/.env` with a funded `AGENT_PRIVATE_KEY` and deployed addresses. Unlike the local harness, they cannot time-warp — phases advance by real wall-clock — so use short phase windows for a fast demo. Run with `npm run` where a script exists, otherwise `npx tsx`.
+
+| Script | How to run | What it does |
+| --- | --- | --- |
+| `create-demo-event.ts` | `npm run demo:event` | Creates and funds a real event on Mantle Sepolia, then commits a hand-built 24-word pool. No AI. Phases default to 5/2/10/15/5 minutes; env: `SUBMISSION_MINS`, `FOUNDER_MINS`, `MARKET_MINS`, `LIVE_MINS`, `DISPUTE_MINS`, `REWARD_MNT`, `THEME`. |
+| `simulate-players.ts` | `EVENT_ID=3 PLAYERS=8 FUND_MNT=3 npx tsx scripts/simulate-players.ts` | Derives N ephemeral wallets, funds each from the agent wallet, mints a card, and buys 1-2 random words to seed liquidity. Requires the event in `Founder`/`Market` with a committed pool. |
+| `trade-bot.ts` | `EVENT_ID=3 npx tsx scripts/trade-bot.ts` | Funds N throwaway wallets, then loops random buys/sells concentrated on a "hot" subset so prices swing visibly. Env: `EVENT_ID`, `PLAYERS`, `FUND_MNT`, `TICKS`, `TICK_MS`, `HOT`, `BUY_MIN`, `BUY_MAX`, `SELL_PROB`. Stops if the event leaves the `Market` phase. |
+| `validate-text.ts` | `EVENT_ID=2 TRANSCRIPT="..." npx tsx scripts/validate-text.ts` | Seeds the local event record, then runs the oracle on a **TEXT transcript** (bypassing audio) and commits verdicts on-chain. Optional `GEMINI_MODEL`. |
+| `commit-pool-direct.ts` | `EVENT_ID=2 npm run commit:direct` | Commits a hard-coded 24-word pool directly to an existing event, bypassing the AI curator — reliable when the Gemini free tier is rate-limited. Curator-gated; must run before `marketLock`. |
+
+> The bots use **real on-chain transactions** from throwaway wallets — not organic users. Demo market liquidity is bot-generated, and the oracle demo runs on a recorded text transcript, not live audio.
+
+## All Agent NPM Scripts
+
+From `agent/package.json`:
+
+| Script | Command |
+| --- | --- |
+| `dev` | `tsx watch src/server.ts` |
+| `start` | `tsx src/server.ts` |
+| `build` | `tsc -p tsconfig.json` |
+| `typecheck` | `tsc -p tsconfig.json --noEmit` |
+| `oracle` | `tsx src/cli/oracle.ts` |
+| `oracle:audio` | `tsx src/cli/validateAudio.ts` |
+| `e2e:local` | `tsx scripts/e2e-local.ts` |
+| `demo:event` | `tsx scripts/create-demo-event.ts` |
+| `test` | `node --import tsx --test test/*.test.ts` |
+
+The `commit:direct` script referenced above is invoked via `npx tsx scripts/commit-pool-direct.ts` (it is not declared in `package.json`).
+
+## Where To Go Next
+
+- [/getting-started/quick-start](/getting-started/quick-start) — clone, install, and configure your environment.
+- [/contracts/deployment](/contracts/deployment) — deploy the contracts to anvil or Mantle Sepolia.
+- [/agent/overview](/agent/overview) — how the AI curator, odds engine, and validation oracle fit together.

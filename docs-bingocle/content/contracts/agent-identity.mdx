@@ -1,0 +1,71 @@
+# AgentIdentity
+
+`AgentIdentity` is an ERC-8004-style identity NFT for AI agents on Mantle. It is **soulbound** to an operator wallet and carries portable, on-chain reputation, so an agent's track record accrues to the token and travels with the wallet — the Turing-Test thesis of off-chain inference with on-chain accountability.
+
+## Overview
+
+The contract is an `ERC721` (named `Bingocle Agent Identity`, symbol `BAGENT`) plus `Ownable`. It binds an operator wallet to a reputation-bearing NFT and serves two jobs:
+
+- **Oracle gating** — `isOracle(who)` is the membership check that [OracleRegistry](/contracts/oracle-registry) consults before accepting a verdict.
+- **Reputation accrual** — a single authorized writer (the OracleRegistry) records every validation, every event served, and every upheld dispute against the agent's `agentId`.
+
+Each operator can hold at most one identity. `agentIdOf[operator]` returns `0` when an address has no identity, and a non-zero `agentId` otherwise.
+
+## Registration And Gating
+
+`registerAgent` mints an identity to an operator wallet. Only the contract `owner` can call it, and an operator may only be registered once.
+
+| Function | Caller | Description |
+| --- | --- | --- |
+| `registerAgent(address operator, string uri)` | `owner` | Mints a new identity NFT to `operator`, assigns `agentId = ++agentCount`, sets `operatorOf[agentId]` and `agentIdOf[operator]`, stores `uri`, and emits `AgentRegistered`. Returns the new `agentId`. Reverts `ZeroOperator` if `operator` is `address(0)`, or `AlreadyRegistered` if the operator already holds an identity. |
+| `setUpdater(address updater)` | `owner` | Sets `authorizedUpdater`, the single contract allowed to write reputation. Emits `UpdaterSet`. The deploy script sets this to the OracleRegistry. |
+| `isOracle(address who)` | view | Returns `true` when `agentIdOf[who]` is non-zero. This is the exact gate `OracleRegistry.commitValidation` checks before recording a verdict. |
+| `agentIdOf(address who)` | view | Maps an operator wallet to its `agentId` (`0` = none). |
+| `tokenURI(uint256 tokenId)` | view | Returns the stored URI for an owned token. |
+
+> Registration is owner-gated: an agent cannot self-mint an identity. Becoming an oracle is therefore a deliberate, on-chain admission by the protocol owner.
+
+## Reputation
+
+Each `agentId` has a `Reputation` struct, all fields `uint64`, readable via the public `reputation` mapping.
+
+| Field | Meaning |
+| --- | --- |
+| `validations` | Count of verdicts the agent has committed on-chain. |
+| `eventsServed` | Count of distinct events the agent has refereed. |
+| `disputesUpheld` | Count of the agent's verdicts the community overturned (lower is better). |
+
+Only the `authorizedUpdater` (the OracleRegistry) can mutate these fields; each writer is guarded by the `onlyUpdater` modifier and reverts `NotUpdater` for anyone else.
+
+| Function | Effect |
+| --- | --- |
+| `recordValidation(uint256 agentId)` | Increments `validations`; emits `ValidationRecorded`. |
+| `recordEventServed(uint256 agentId)` | Increments `eventsServed`; emits `EventServedRecorded`. |
+| `recordDispute(uint256 agentId, bool upheld)` | Increments `disputesUpheld` only when `upheld` is `true`; always emits `DisputeRecorded`. |
+
+In practice, `OracleRegistry.commitValidation` calls `recordEventServed` the first time an agent acts on an event, then `recordValidation` on every verdict; `resolveDispute` calls `recordDispute` with the resolution outcome.
+
+## Soulbound Transfer
+
+The token is non-transferable. The `_update` override calls `super._update` and then reverts with `Soulbound` when both `from` and `to` are non-zero:
+
+```solidity
+function _update(address to, uint256 tokenId, address auth)
+    internal
+    override
+    returns (address from)
+{
+    from = super._update(to, tokenId, auth);
+    if (from != address(0) && to != address(0)) revert Soulbound();
+}
+```
+
+Mints (`from == address(0)`) and burns (`to == address(0)`) are allowed; wallet-to-wallet transfers are not. This keeps reputation bound to the operator wallet so on-chain authority cannot be split from the track record.
+
+> **Security gap — no revocation path.** There is no deactivation or revocation function. Once registered, an operator stays oracle-eligible as long as the NFT exists. A compromised operator key keeps `isOracle` returning `true` until the NFT is burned. See [Security](/guides/security) and the [Trust Model](/guides/trust-model) for the threat analysis and mitigations.
+
+## Related Pages
+
+- [OracleRegistry](/contracts/oracle-registry) — the authorized updater and the consumer of `isOracle`.
+- [Trust Model](/guides/trust-model) — why reputation is soulbound and what it does (and does not) guarantee.
+- [Security](/guides/security) — the key-compromise and revocation considerations.

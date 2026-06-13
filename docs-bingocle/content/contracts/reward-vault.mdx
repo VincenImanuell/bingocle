@@ -1,0 +1,85 @@
+# RewardVault
+
+`RewardVault` is the pool-funded reward rail of Bingocle, kept entirely separate from the buyer payouts that settle on [WordMarket](/contracts/word-market). It custodies a per-event sponsor pool and, at settlement, pays two things from that pool: **tiered bingo bonuses** earned on a player's card and **founder free-seed payouts** for words a founder seeded that later validated.
+
+## Overview
+
+The contract is a `ReentrancyGuard` that reads all lifecycle and config state from the `EventFactory` (`factory`). It holds one pool per event in `poolBalance[eventId]` and never touches WordMarket reserves, so sponsor money can never come from buyers' stakes.
+
+Two pieces of accounting prevent double payment:
+
+- `claimedTiers[eventId][user]` — a `uint8` bitmask of bonus tiers already paid to a user.
+- `seedPaid[eventId][word][founder]` — a `bool` marking a founder's seed for a word as paid.
+
+> Bonuses and seeds are paid from the **pre-funded pool only**. If the pool cannot cover a claim, the whole claim reverts `PoolUnderfunded` — partial payment is never made.
+
+## Functions
+
+| Function | Access | Phase | Effect |
+| --- | --- | --- | --- |
+| `fund(eventId, amount)` | Organizer or any sponsor | `Submission`, `Founder`, `Market` | Deposits `amount` into `poolBalance[eventId]`; reverts `AfterSettlement` once the event has gone Live or later |
+| `claim(eventId)` | Any player or founder | `Settled` | Pays newly-earned bingo bonus plus unpaid founder seed; reverts `NotSettled`, `NothingToClaim`, or `PoolUnderfunded` |
+| `withdrawResidual(eventId)` | Organizer only | `Settled` (after grace) | Reclaims the unclaimed remainder of the pool; reverts `ClaimWindowOpen` until `disputeEnd + CLAIM_GRACE` |
+| `withdrawOnCancel(eventId)` | Organizer only | `Cancelled` | Reclaims the entire unspent pool after an organizer cancel |
+| `previewClaim(eventId, user)` | View | any | Returns `(bonus, seed)` a user would receive, without state changes |
+
+### Funding the Pool
+
+`fund` is `payable` and allowed only in the `Submission`, `Founder`, and `Market` phases — that is, strictly before the event goes `Live`. Funding after settlement (or into a cancelled event) reverts `AfterSettlement`, so the pool is always seeded before play begins and funds can't be stranded.
+
+- For a **native** event (`token == address(0)`), `msg.value` must equal `amount`, else `WrongValue`.
+- For an **ERC20** event, `msg.value` must be `0`; the contract uses `safeTransferFrom` and credits the actual received balance delta (fee-on-transfer safe), so `poolBalance` reflects what truly arrived.
+
+## Claiming Rewards
+
+`claim` is only callable in the `Settled` phase. It computes a bonus and a seed amount independently, sums them, and pays once:
+
+```solidity
+(uint256 bonus, uint8 newTiers) = _bonusOwed(eventId, msg.sender);
+uint256 seed = _seedOwed(eventId, msg.sender);
+uint256 total = bonus + seed;
+if (total == 0) revert NothingToClaim();
+if (poolBalance[eventId] < total) revert PoolUnderfunded();
+```
+
+State effects (mark tiers, mark seeds, debit the pool) happen before the transfer, and the payout uses a native `call` or `safeTransfer` depending on the event token.
+
+### Bingo Bonus
+
+`_bonusOwed` reads the player's card from the [BingoCardNFT](/contracts/bingo-card-nft). If the player has no card (`hasCard` is `false`), nothing is owed. Otherwise it loads `markedMask(tokenId)` and derives the earned tiers via `BingoLib.earnedTiers(marked)`, then diffs against `claimedTiers` so only **newly-earned** tiers pay:
+
+```solidity
+uint8 earned  = BingoLib.earnedTiers(marked);
+newTiers      = earned & ~claimedTiers[eventId][user];
+amount        = BingoLib.bonusAmount(newTiers, factory.getConfig(eventId).bonus);
+```
+
+Tiers are **stackable** — a card can earn several at once, and across multiple claims a player only ever receives each tier once. The amounts come from the event's `BonusTiers` config:
+
+| Tier | Flag | Earned When | Amount field |
+| --- | --- | --- | --- |
+| Line | `TIER_LINE` | one or more lines complete (`lines >= 1`) | `bonus.line` |
+| Diagonal | `TIER_DIAG` | either diagonal complete | `bonus.diagonal` |
+| Double Line | `TIER_DOUBLE` | two or more lines complete (`lines >= 2`) | `bonus.doubleLine` |
+| Full Card | `TIER_FULL` | every cell marked | `bonus.fullCard` |
+
+The center cell (index `12`) is always treated as marked, and lines, diagonals, double-line, and full-card are evaluated over the 12 winning masks in `BingoLib`. Spec default bonus amounts are `50 / 75 / 100 / 500`.
+
+### Founder Seed Payout
+
+`_seedOwed` pays a founder for each word they seeded that the oracle later validated, gated on three predicates per word index `w`:
+
+- `oracle.validatedBitmap(eventId)` has bit `w` set (the word validated),
+- `pool.founderOf(eventId, w)` equals the user (they founded it),
+- `market.hasFounderSeed(eventId, w, user)` is `true` (they actually seeded it — see [WordMarket](/contracts/word-market)),
+- and `seedPaid[eventId][w][user]` is not yet set.
+
+Each qualifying word pays `founderSeedUnit * multOf(eventId, w) / SCALE`, where `SCALE` is `1e4`. If `founderSeedUnit` is `0`, no seed is owed. `_markSeeds` then flags every counted word as paid using the identical predicate.
+
+## Residual and Cancel Withdrawals
+
+`withdrawResidual` lets the organizer reclaim whatever winners never claimed, but only well after the event: it reverts `ClaimWindowOpen` until `block.timestamp >= disputeEnd + CLAIM_GRACE`, where `CLAIM_GRACE` is `30 days`. This long grace window keeps the claim path open for legitimate winners.
+
+`withdrawOnCancel` is the cancellation path: when the organizer has moved the event to the `Cancelled` phase, they reclaim the entire unspent pool. Both functions require `isOrganizer`, zero out `poolBalance`, and emit `PoolWithdrawn`.
+
+> See the full lifecycle and how these payouts fit the end-to-end flow in the [Game Loop guide](/guides/game-loop).

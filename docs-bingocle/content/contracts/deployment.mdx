@@ -1,0 +1,103 @@
+# Deployment
+
+This page documents the full Bingocle deploy pipeline: the Foundry script that deploys and wires the seven contracts, the shell wrappers that auto-distribute addresses, contract verification on Mantlescan, and the Render Blueprint for the two Node services. For a faster walkthrough see [Quick Start](/getting-started/quick-start); for running everything against a local chain see [Local Development](/guides/local-development).
+
+## The Deploy Script
+
+`contracts/script/Deploy.s.sol` is a Foundry `Script` that deploys all seven contracts in one broadcast, wires them together, and registers the AI agent's ERC-8004 identity.
+
+It reads two environment variables:
+
+| Env var | Required | Behavior |
+| --- | --- | --- |
+| `PRIVATE_KEY` | yes | Deployer key; the resulting address becomes `owner` of the ownable modules |
+| `AGENT_ADDRESS` | no | AI agent wallet (oracle operator + word-pool curator); via `vm.envOr` it **defaults to the deployer** |
+
+The script runs these steps inside a single `vm.startBroadcast` / `vm.stopBroadcast` block:
+
+1. Deploy `AgentIdentity(deployer)`, `EventFactory(deployer)`, `WordPool(deployer, factory)`, `WordMarket(factory)`, `OracleRegistry(deployer, factory)`, `BingoCardNFT(factory)`, and `RewardVault(factory)`.
+2. Call `factory.wireModules(wordPool, wordMarket, oracle, cardNFT, rewardVault, agentIdentity)` once to populate the factory's module registry.
+3. Call `agentIdentity.setUpdater(address(oracle))` so the `OracleRegistry` becomes the only writer of agent reputation.
+4. Call `agentIdentity.registerAgent(agent, "ipfs://bingocle-oracle-agent")` to mint the AI Validation Oracle's ERC-8004 identity NFT.
+5. Call `wordPool.setCurator(agent)` so the agent wallet can commit word pools.
+
+> Order matters: in the actual code `setUpdater` is called **before** `registerAgent`. The constructor wiring passes the factory address into every module so each can resolve its siblings; see [Contracts Overview](/contracts/overview).
+
+Finally it prints each deployed address as a `KEY=VALUE` pair via `console2.log`, for example `EVENT_FACTORY_ADDRESS= 0x...`. These printed lines are what the wrapper script scrapes.
+
+## Running The Deploy
+
+The README command runs the wrapper, which targets Mantle Sepolia (`chainId 5003`) or a local Anvil node:
+
+```bash
+# Deploy + auto-write addresses into agent/.env and capability/.env:
+PRIVATE_KEY=0x... AGENT_ADDRESS=0x... RPC_URL=https://rpc.sepolia.mantle.xyz \
+  scripts/deploy.sh --broadcast --verify
+```
+
+`scripts/deploy.sh` orchestrates everything so there is no manual copy/paste:
+
+- It requires `PRIVATE_KEY`; `RPC_URL` defaults to `http://127.0.0.1:8545` (local Anvil) and `AGENT_ADDRESS` is optional.
+- It runs `forge script script/Deploy.s.sol --rpc-url "$RPC_URL"` from `contracts/`, forwarding any extra args (`--broadcast`, `--verify`).
+- It greps stdout for `[A-Z_]+_ADDRESS= 0x...` pairs and `upsert`s each one into `agent/.env` and `capability/.env` (creating them from `.env.example` if missing).
+- For the frontend it rewrites each key to `NEXT_PUBLIC_<NAME>` by **dropping the `_ADDRESS` suffix** and writes them into `frontend/.env.local`. So `EVENT_FACTORY_ADDRESS` becomes `NEXT_PUBLIC_EVENT_FACTORY`.
+
+For a local run:
+
+```bash
+anvil --silent &
+PRIVATE_KEY=0xac09...ff80 RPC_URL=http://127.0.0.1:8545 scripts/deploy.sh --broadcast
+```
+
+## Verifying On Mantlescan
+
+`scripts/verify.sh` verifies the seven contracts on Mantle Sepolia's Etherscan-compatible explorer (Mantlescan). It requires a free `MANTLE_API_KEY`:
+
+```bash
+MANTLE_API_KEY=XXXX scripts/verify.sh
+```
+
+It runs `forge verify-contract` per contract with `--chain 5003`, `--verifier etherscan`, and `--verifier-url https://api-sepolia.mantlescan.xyz/api` (the `VERIFIER_URL` is overridable). Constructor args are ABI-encoded with `cast abi-encode` to mirror `Deploy.s.sol`:
+
+| Contract | Constructor signature | Encoded args |
+| --- | --- | --- |
+| `AgentIdentity` | `constructor(address)` | `DEPLOYER` |
+| `EventFactory` | `constructor(address)` | `DEPLOYER` |
+| `WordPool` | `constructor(address,address)` | `DEPLOYER`, `FACTORY` |
+| `WordMarket` | `constructor(address)` | `FACTORY` |
+| `OracleRegistry` | `constructor(address,address)` | `DEPLOYER`, `FACTORY` |
+| `BingoCardNFT` | `constructor(address)` | `FACTORY` |
+| `RewardVault` | `constructor(address)` | `FACTORY` |
+
+`DEPLOYER` and `FACTORY` default to the known deployed values (`DEPLOYER` is `0x785cF4596b932B4319Eb31b9C353fE7Ae7695D2D`) and are overridable via env if you redeploy. Each `verify` call uses `--watch` and continues on failure (a contract may already be verified). If Mantlescan rejects, the script suggests retrying against Blockscout with `--verifier blockscout`.
+
+## Render Blueprint For The Node Services
+
+`render.yaml` is a Render Blueprint that deploys the two off-chain Node services as Docker services. The contracts already live on Mantle Sepolia and the frontend deploys on Vercel.
+
+| Service | Type | Plan | Notes |
+| --- | --- | --- | --- |
+| `bingocle-agent` | `web` | `free` | Binds `$PORT` (`8787`), healthcheck `/health`, public HTTPS URL |
+| `bingocle-capability` | `worker` | `starter` | Telegram long-polling bot, always-on (no free tier for workers) |
+
+Both services set non-secret env vars inline (`CHAIN_ID=5003`, `MANTLE_RPC_URL`, and the seven deployed contract addresses). Secrets are marked `sync: false` and must be set manually in the Render dashboard after the first deploy:
+
+- **Agent:** `GEMINI_API_KEY`, `AGENT_PRIVATE_KEY`.
+- **Capability:** `GEMINI_API_KEY`, `TELEGRAM_BOT_TOKEN`, `DEMO_WALLET_MNEMONIC`, and `AGENT_API_URL`.
+
+> After the agent service gets its public URL, wire it into the other surfaces: set `NEXT_PUBLIC_AGENT_API` on Vercel (frontend) and `AGENT_API_URL` on the capability worker (Render). Both default to `http://localhost:8787`, which fails for remote users.
+
+## Docker
+
+Each service ships its own Dockerfile (`agent/Dockerfile`, `capability/Dockerfile`). Render builds them via the Blueprint, but you can build them directly:
+
+```bash
+docker build ./agent
+docker build ./capability
+```
+
+## Related Pages
+
+- [Quick Start](/getting-started/quick-start) — the end-to-end setup path.
+- [Local Development](/guides/local-development) — running against a local Anvil chain.
+- [Contracts Overview](/contracts/overview) — how the seven modules relate.

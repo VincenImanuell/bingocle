@@ -1,0 +1,90 @@
+# Odds Engine
+
+The AI Odds Engine assigns every curated word an opening **price** and a payout **multiplier**. It asks Gemini to estimate how likely each word is to be spoken, then a deterministic, pure-math `blend()` mixes that estimate with community vote share into on-chain odds.
+
+## Overview
+
+The engine lives in `agent/src/ai/odds.ts` and exposes two functions:
+
+| Function | Role |
+| --- | --- |
+| `computeOdds(args)` | Calls Gemini for per-word probabilities, then runs `blend()`. Returns `WordOdds[]`. |
+| `blend(pool, probByWord, vig)` | Pure odds math: turns probabilities and votes into prices and multipliers. No I/O. |
+
+Each result is a `WordOdds` record:
+
+```ts
+export type WordOdds = {
+  word: string;
+  aiProb: number;   // 0..1, the LLM's spoken-probability estimate
+  price1e4: number; // opening price, 1e4 fixed-point (<= SCALE)
+  mult1e4: number;  // payout multiplier, 1e4 fixed-point (>= SCALE)
+};
+```
+
+Prices and multipliers are emitted in **1e4 fixed-point**: the `SCALE` constant from `agent/src/config.ts` is `10_000`, so `10000` means `1.0` (a price of 1.0 or a 1.0x multiplier).
+
+## LLM Probability Estimate
+
+`computeOdds` builds a prompt from the event `theme`, `description`, and the curated word list, then calls `structured()` from `agent/src/ai/gemini.ts`. The system prompt instructs the model to return, for each word, the probability in the range `0..1` that a speaker on the theme says it out loud at least once. Theme-central words score high (`0.8`-`0.95`); niche or surprising words score low (`0.1`-`0.3`).
+
+The response is validated against a Zod schema (`estimates: [{ word, aiProb }]`) and each `aiProb` is clamped into `[0, 1]`. Words missing from the model's reply fall back to a default probability of `0.3` inside `blend()`.
+
+> The probabilities come from the curated pool produced upstream. See [AI Curator](/agent/ai-curator) for how submissions become the `CuratedWord[]` (word, votes, founder) that this engine consumes.
+
+## The Blend Formula
+
+`blend()` is the auditable core. It is deterministic given `(aiProb, votes)` so the on-chain odds can be reproduced and checked. Vote weight is normalized against the most-voted word in the pool (`maxVotes`, floored at `1`).
+
+```ts
+const maxVotes = Math.max(1, ...pool.map((w) => w.votes));
+const aiProb = probByWord.get(w.word) ?? 0.3;
+const voteWeight = w.votes / maxVotes;            // 0..1
+const p = clamp(0.6 * aiProb + 0.4 * voteWeight, 0.05, 0.95);
+const mult = clamp((1 / p) * (1 - vig), 1.05, 5.0);
+price1e4 = Math.round(p * SCALE);
+mult1e4  = Math.round(mult * SCALE);
+```
+
+All constants are **hardcoded** in `blend()`:
+
+| Constant | Value | Meaning |
+| --- | --- | --- |
+| LLM weight | `0.6` | Share of blend from the model probability. |
+| Vote weight | `0.4` | Share of blend from community vote share. |
+| Probability clamp | `[0.05, 0.95]` | Keeps `p` away from `0` and `1`. |
+| `vig` (default) | `0.12` | House edge applied to the multiplier. |
+| Multiplier clamp | `[1.05, 5.0]` | Bounds the payout multiplier. |
+
+The `vig` is a parameter (default `0.12`), so the roughly 12% house edge can be overridden by callers, while the blend weights and clamp bounds are fixed literals.
+
+## Price And Multiplier Derivation
+
+- **Price** is the blended implied probability `p`, scaled: `price1e4 = round(p * 10000)`. A high `p` means the word is cheap to be "right" and produces a high price.
+- **Multiplier** is the inverse of price, net of vig: `mult = (1 / p) * (1 - 0.12)`, clamped to `[1.05, 5.0]` and scaled: `mult1e4 = round(mult * 10000)`.
+
+Because `mult` moves inversely to `p`, a higher probability yields a **higher price and a lower multiplier**, and vice versa. The clamps guarantee on-chain invariants: `0 < price1e4 <= 10000` and `mult1e4 >= 10000`.
+
+## Feeding The Contracts
+
+In `agent/src/services/pool.ts`, the `WordOdds[]` is split into parallel arrays and committed on-chain:
+
+```ts
+const prices = odds.map((o) => o.price1e4);
+const mults = odds.map((o) => o.mult1e4);
+const tx = await contracts.wordPool().commitPool(
+  args.eventId, hashes, prices, mults, founders, root,
+);
+```
+
+These `prices` and `mults` (1e4 scale) become the opening odds stored by [WordPool](/contracts/word-pool) and traded against by [WordMarket](/contracts/word-market).
+
+## Tests
+
+`agent/test/logic.test.ts` unit-tests the pure math. The `blend` test feeds two words (`AI` with `aiProb 0.95` and high votes, `Airdrop` with `aiProb 0.15` and low votes) and asserts:
+
+- The higher-probability word has the higher `price1e4` and the lower `mult1e4`.
+- Each output satisfies `price1e4 > 0` and `price1e4 <= 10000`.
+- Each output satisfies `mult1e4 >= 10000`.
+
+Because `blend()` is pure and synchronous, these checks run without any network or Gemini access.

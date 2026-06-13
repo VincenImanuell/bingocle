@@ -1,0 +1,57 @@
+# The Game Loop
+
+This guide walks the full Bingocle event lifecycle end to end, naming the exact contract function and the surface (agent HTTP route, capability command, or frontend action) that triggers each step. Every phase is derived purely from on-chain timestamps by `EventFactory.phaseOf`, so the schedule is contract-enforced rather than advanced by any privileged caller.
+
+> Phases are strictly ordered and each has positive width. `createEvent` requires `block.timestamp < submissionEnd < founderEnd < marketLock < eventEnd < disputeEnd`, so no phase can collapse to zero width.
+
+## Phase Overview
+
+`phaseOf` maps the current `block.timestamp` against the five stored deadlines into one of these phases (a cancelled event short-circuits to `Cancelled`).
+
+| Phase | Active while | Primary action | Contract |
+| --- | --- | --- | --- |
+| `Submission` | `t < submissionEnd` | players submit predicted words | off-chain inbox |
+| `Founder` | `t < founderEnd` | founder-only buys, card mint, seed claim | [WordMarket](/contracts/word-market) |
+| `Market` | `t < marketLock` | open trading, card mint | [WordMarket](/contracts/word-market) |
+| `Live` | `t < eventEnd` | oracle validates spoken words | [OracleRegistry](/contracts/oracle-registry) |
+| `Dispute` | `t < disputeEnd` | raise / resolve disputes | [OracleRegistry](/contracts/oracle-registry) |
+| `Settled` | `t >= disputeEnd` | settle, redeem, claim, sweep | [WordMarket](/contracts/word-market), [RewardVault](/contracts/reward-vault) |
+
+Curation must commit the pool before `marketLock` (`commitPool` reverts with `MarketOpen` otherwise), and `RewardVault.fund` is only allowed in `Submission`, `Founder`, or `Market`.
+
+## The Thirteen Steps
+
+1. **Event creation.** The organizer — in practice the agent wallet, via the capability `create` command which posts `POST /events` — calls `EventFactory.createEvent(token, submissionEnd, founderEnd, marketLock, eventEnd, disputeEnd, maxWordsPerUser, cardSize, founderSeedUnit, bonus)`. `cardSize` must be `25` (else `BadCardSize`); a zero `maxWordsPerUser` defaults to `3`. See [EventFactory](/contracts/event-factory).
+
+2. **Auto-fund.** Immediately after create, the agent server calls `RewardVault.fund(eventId, amount)` to seed the bonus and founder-seed pool. The amount defaults to 30 MNT via `body.rewardFundMnt` or the `REWARD_FUND_MNT` env var (`0` skips it). Funding must happen before the event goes Live. See [RewardVault](/contracts/reward-vault).
+
+3. **Word submission.** Players send predicted words to an off-chain inbox: the Telegram capability keeps its own inbox, while the web and email surfaces call `POST /events/:id/submit` (word limited to `1-40` characters). The earliest submitter per word becomes that word's prospective **founder**. See [Capability commands](/capability/commands).
+
+4. **Curation, odds, and commit.** The organizer triggers `POST /events/:id/commit-pool`, which runs `curateAndCommit`: the Gemini **Curator** normalizes, merges, and rejects submissions, then the **Odds Engine** (`blend`) mixes `0.6 * aiProb + 0.4 * voteWeight`, derives `price = implied probability` and `mult = (1 / price) * (1 - vig)` with `vig = 0.12`. It then calls `WordPool.commitPool(eventId, wordHashes, prices, mults, founders, root)`, freezing the pool behind keccak word hashes and a merkle root. The pool must hold between 24 and 254 words. See [AI Curator](/agent/ai-curator), [Odds Engine](/agent/odds-engine), and [WordPool](/contracts/word-pool).
+
+5. **Founder window.** During `Founder`, `WordMarket.buy` reverts unless `msg.sender` equals `pool.founderOf(eventId, w)` — only a word's founder may buy it. The linear curve's `base` and `slope` lock in on the first touch via `_ensureCurve`. Founders also call `claimFounderSeed(eventId, w)` to record their sponsor-funded free seed (allowed in `Founder` or `Market`).
+
+6. **Card minting.** Any wallet calls `BingoCardNFT.mint(eventId)` once per event, allowed in `Founder` or `Market`. The 5x5 layout is a deterministic Fisher-Yates shuffle (`BingoLib.buildCard`) seeded from on-chain entropy; the center cell is `255` (FREE). Cards are **soulbound** — `_update` reverts on any non-mint, non-burn transfer. See [BingoCardNFT](/contracts/bingo-card-nft).
+
+7. **Open market.** During `Market`, anyone calls `buy` / `sell` on the linear bonding curve `price = base + slope·supply`. Trading is fee-free, so each word's held reserve equals the exact area under its curve and the contract balance equals `totalReserve`.
+
+8. **Live oracle validation.** Once `t` passes `marketLock` the event is `Live`. The organizer triggers `POST /events/:id/validate`; the AI Validation Oracle matches the transcript and, for each fresh match at confidence `>= 0.6`, calls `OracleRegistry.commitValidation(eventId, wordIndex, confidence, snippet)`. That call is gated by `isOracle(msg.sender)`, sets the word's bit in `validatedBitmap`, and accrues the agent's reputation. This on-chain write is the moment a spoken word becomes truth and lights the matching card cells. See [Validation Oracle](/agent/validation-oracle) and [OracleRegistry](/contracts/oracle-registry).
+
+9. **Dispute window.** After `eventEnd` (phase `Dispute`), anyone may call `raiseDispute(eventId, wordIndex)`. The owner or organizer calls `resolveDispute(eventId, wordIndex, upheld)`; if upheld, the verdict is reversed — the bit is cleared from `validatedBitmap` and the committing agent's dispute counter rises.
+
+10. **Settlement.** Once `t` reaches `disputeEnd` (phase `Settled`), `WordMarket.settle(eventId)` freezes the split: `winnerReserveSum` (sum of validated-word reserves), `freedPool` (sum of losing-word reserves), and `noWinners`. `redeem` auto-calls `settle` if needed.
+
+11. **Prediction redemption.** Winners call `WordMarket.redeem(eventId)` to take their pro-rata share of each validated word's reserve plus a cut of `freedPool`. If no word was validated, holders instead call `refundNoWinners(eventId)` to reclaim their own reserve share.
+
+12. **Bonus and seed claim.** Winners call `RewardVault.claim(eventId)` for stackable tiered bingo bonuses (from their card's `markedMask`) plus founder-seed payouts. The capability flow calls `redeem` first, then `claim` independently so a partial success still pays. `claim` reverts `PoolUnderfunded` if the reward pool cannot cover the total. See [RewardVault](/contracts/reward-vault).
+
+13. **Residual sweep / cancel.** After a 30-day `CLAIM_GRACE` past `disputeEnd`, the organizer reclaims leftovers via `WordMarket.sweepResidual(eventId)` and `RewardVault.withdrawResidual(eventId)`. If the organizer instead called `EventFactory.cancel` before `eventEnd`, the phase becomes `Cancelled` and players reclaim their reserve pro-rata via `WordMarket.refund(eventId)` while the organizer recovers the pool via `RewardVault.withdrawOnCancel`.
+
+## Two Independent Payout Rails
+
+Settlement pays winners through two separate accounting rails, which is why the capability calls `redeem` and `claim` independently:
+
+- **Bought predictions** settle from the `WordMarket` curve reserves (`redeem` / `refundNoWinners` / `refund`).
+- **Bingo bonuses and founder seeds** settle from the sponsor pool in `RewardVault` (`claim`), never from buyers' stakes.
+
+For how validation verdicts and agent reputation underpin this loop, see the [trust model](/guides/trust-model). For a map of every contract referenced above, see the [contracts overview](/contracts/overview).

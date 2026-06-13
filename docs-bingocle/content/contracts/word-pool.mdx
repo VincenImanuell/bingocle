@@ -1,0 +1,76 @@
+# WordPool
+
+`WordPool` stores the AI-curated final word list and odds for an event. The Curator agent commits it once, before the market opens, and it is frozen thereafter so the playable word set and opening prices cannot change mid-event.
+
+## Overview
+
+Each event has exactly one pool, keyed by `eventId`. A pool holds four parallel arrays indexed by **word index**: the `keccak256` hash of each canonical word, its opening price, its payout multiplier, and the founder address that first seeded it. The plaintext words live off-chain in the agent store; only their hashes are stored on-chain, bound by a merkle root.
+
+The contract is `Ownable`. The constructor takes `(address owner_, address factory_)` and records the immutable `EventFactory` reference used to validate event existence and read deadlines.
+
+> The pool is produced by the [AI Curator](/agent/ai-curator), and its prices and multipliers are set by the [Odds Engine](/agent/odds-engine). The committed values feed directly into the [WordMarket](/contracts/word-market) trading surface.
+
+## Roles
+
+| Role | How it is set | Capability |
+| --- | --- | --- |
+| `owner` | constructor (`Ownable`) | call `setCurator` |
+| `curator` | `setCurator(address c)`, `onlyOwner` | call `commitPool` |
+
+The `curator` is **not** set in the constructor — the owner assigns it via `setCurator`, which emits `CuratorSet(curator)`. In practice the owner points it at the agent wallet after deploy.
+
+## Committing A Pool
+
+```solidity
+function commitPool(
+    uint256 eventId,
+    bytes32[] calldata wordHashes,
+    uint16[] calldata prices,
+    uint16[] calldata mults,
+    address[] calldata founders,
+    bytes32 root
+) external;
+```
+
+| Parameter | Type | Meaning |
+| --- | --- | --- |
+| `eventId` | `uint256` | Target event (must exist in the factory). |
+| `wordHashes` | `bytes32[]` | `keccak256` of each canonical word. |
+| `prices` | `uint16[]` | Opening prices, `1e4` scale. |
+| `mults` | `uint16[]` | Payout multipliers, `1e4` scale. |
+| `founders` | `address[]` | First submitter per word, or `address(0)`. |
+| `root` | `bytes32` | Merkle root binding the off-chain word list. |
+
+### Validation Rules
+
+`commitPool` enforces, in order:
+
+- **Curator only** — reverts `NotCurator` unless `msg.sender == curator`.
+- **Event exists** — reverts `NotExist` if `factory.exists(eventId)` is false.
+- **Commit once** — reverts `AlreadyCommitted` if the pool was already committed.
+- **Before market lock** — reverts `MarketOpen` if `block.timestamp >= factory.getConfig(eventId).marketLock`.
+- **Word count** — reverts `BadArrays` unless the count is at least 24 and at most 254 (`n < 24 || n > 254`). The minimum guarantees enough words for a 5x5 card.
+- **Equal lengths** — reverts `BadArrays` unless `prices`, `mults`, and `founders` each match `wordHashes.length`.
+- **Per-word bounds** — for every index, reverts `BadArrays` if `prices[i] == 0`, `prices[i] > SCALE`, or `mults[i] < SCALE`.
+
+`SCALE` is the fixed-point constant `1e4` (10000 represents `1.0`). So each opening price sits in the half-open range `0 < price <= SCALE` (greater than 0, up to `1.0`), and each multiplier is at least `SCALE` (`>= 1.0x`) so a winning stake never loses value. For example, an opening price of `0.25` is `2500` and a multiplier of `1.2x` is `12000`.
+
+On success the contract sets `committed = true`, stores `root`, pushes every entry, and emits `PoolCommitted(eventId, wordCount, root)`.
+
+> **The merkle root is stored but never verified on-chain.** `commitPool` records `root` as an off-chain commitment that binds the index-to-word mapping, but the contract performs no proof checking — there is no `verify` path. Trust in the index-to-word mapping rests on that off-chain commitment, not on contract enforcement.
+
+Once committed, the pool is **frozen**: there is no update or re-commit path, so prices, multipliers, words, and founders are immutable for the life of the event.
+
+## Views
+
+| Function | Returns | Notes |
+| --- | --- | --- |
+| `isCommitted(eventId)` | `bool` | Whether the pool is frozen. |
+| `wordCount(eventId)` | `uint256` | Number of words in the pool. |
+| `merkleRoot(eventId)` | `bytes32` | The stored off-chain commitment. |
+| `wordHashOf(eventId, wordIndex)` | `bytes32` | `keccak256` of the canonical word. |
+| `priceOf(eventId, wordIndex)` | `uint256` | Opening price, `1e4` scale. |
+| `multOf(eventId, wordIndex)` | `uint256` | Payout multiplier, `1e4` scale. |
+| `founderOf(eventId, wordIndex)` | `address` | First submitter, or `address(0)`. |
+
+All views index into stored arrays and will revert on out-of-range `wordIndex` access. The `founder` is the earliest submitter of a word, who receives a free seed and the founder price; `address(0)` means no founder for that index.

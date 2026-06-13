@@ -1,0 +1,75 @@
+# Smart Contracts Overview
+
+Bingocle runs on **seven Solidity contracts deployed to Mantle**. Together they own the full game lifecycle: event scheduling, an AI-curated word pool, a fee-free trading market, an on-chain oracle log, soulbound bingo cards, a reward vault, and reputation-bearing agent identities.
+
+## Build Configuration
+
+All contracts share one toolchain, pinned in `contracts/foundry.toml`. They are written against OpenZeppelin (`Ownable`, `ERC721`, `ERC20`/`SafeERC20`, `ReentrancyGuard`, `Math`, `Base64`, `Strings`).
+
+| Setting | Value |
+| --- | --- |
+| `solc` | `0.8.28` |
+| `evm_version` | `cancun` |
+| `via_ir` | `true` |
+| `optimizer` | `true`, `optimizer_runs = 200` |
+| Networks | `mantle` (chain `5000`), `mantle_sepolia` (chain `5003`) |
+
+See [Deployment](/contracts/deployment) for RPC, verifier, and wiring details.
+
+## The Seven Contracts
+
+| Contract | Role | Page |
+| --- | --- | --- |
+| `EventFactory` | Event lifecycle, config, and timestamp-derived phase scheduling; one-time `wireModules` registers every module address. | [Event Factory](/contracts/event-factory) |
+| `WordPool` | Curator-committed final word list as keccak hashes, with opening prices and payout multipliers in `1e4` scale plus per-word founder designations; frozen behind a merkle root. | [Word Pool](/contracts/word-pool) |
+| `WordMarket` | Per-word parimutuel trading on a linear bonding curve, fee-free, plus settlement and redemption. | [Word Market](/contracts/word-market) |
+| `OracleRegistry` | Permanent, auditable log of AI oracle verdicts with confidence, snippet, and a dispute window. | [Oracle Registry](/contracts/oracle-registry) |
+| `BingoCardNFT` | Soulbound 5x5 cards with a deterministic on-chain Fisher-Yates layout and fully on-chain SVG metadata. | [Bingo Card NFT](/contracts/bingo-card-nft) |
+| `RewardVault` | Pool-funded bingo bonuses and founder seed payouts, separately pre-funded by sponsors. | [Reward Vault](/contracts/reward-vault) |
+| `AgentIdentity` | ERC-8004-style soulbound identity NFTs for AI agents with on-chain reputation. | [Agent Identity](/contracts/agent-identity) |
+
+The factory is the hub: every other contract holds an immutable `factory` reference and resolves siblings through it (for example `IWordPool(factory.wordPool())`), so addresses are wired exactly once.
+
+## Shared Concepts
+
+### Fixed-Point Scale
+
+`SCALE`, defined in `interfaces/IBingocle.sol`, is `1e4`. It is the fixed-point unit for prices, payout multipliers, and oracle confidence. A price of `2500` means `0.25`, a multiplier of `12000` means `1.2x`, and confidence `9700` means `0.97`. `WordPool.commitPool` enforces `0 < price <= SCALE` and `mult >= SCALE` so a winning stake never loses notional value.
+
+> WordMarket runs an internal `1e18` fixed-point curve and lifts the `1e4` opening price into it with `PRICE_UP = 1e14`. The `1e4` scale is the public, cross-contract convention.
+
+### Phases Are Pure Timestamps
+
+`BingocleTypes.Phase` has eight values: `None`, `Submission`, `Founder`, `Market`, `Live`, `Dispute`, `Settled`, and `Cancelled`. `EventFactory.phaseOf(eventId)` derives the current phase **purely from `block.timestamp`** against the event's schedule (returning `Cancelled` if the organizer cancelled, `None` if the event does not exist). No oracle or backend call decides timing — every deadline is contract-enforced. `createEvent` requires a strictly increasing schedule (`submissionEnd < founderEnd < marketLock < eventEnd < disputeEnd`) so no phase has zero width.
+
+### Roles
+
+- **owner** — the OpenZeppelin `Ownable` admin on `EventFactory`, `WordPool`, `OracleRegistry`, and `AgentIdentity`; sets the curator, the reputation updater, registers agents, and wires modules.
+- **organizer** — per-event, set to `msg.sender` at `createEvent`; can cancel, resolve disputes, and sweep residual funds.
+- **curator** — the AI agent authorized on `WordPool` to call `commitPool`.
+- **oracle** — any wallet bound to an `AgentIdentity` (`isOracle` is true when `agentIdOf != 0`); the only caller allowed to `commitValidation`.
+
+## The Solvency Invariant
+
+`WordMarket` charges **no trading fee**. Each word's `reserve` equals the exact area under its bonding curve, which is path-independent, so for any event the following always holds:
+
+```text
+contract balance == totalReserve == Σ reserve_w (per word)
+```
+
+Buying transfers exactly the curve cost in; selling refunds exactly the area vacated. Because the prize at settlement is just the sum of losing-word reserves redistributed pro-rata to validated-word holders, total payouts equal the total reserve (minus rounding dust). **Winner payouts are therefore solvent regardless of how the oracle votes.** This invariant is checked by a stateful fuzzer (`invariant_balanceEqualsReserve`) in the test suite.
+
+> After settlement, per-word `reserve` is intentionally frozen and only `totalReserve` is decremented on redeem, so post-settlement only `balance == totalReserve` holds. The organizer can `sweepResidual` after a 30-day `CLAIM_GRACE`.
+
+## Two Reward Rails
+
+Payouts flow through two independent contracts so prediction winnings never draw on sponsor money and vice versa:
+
+- **WordMarket** — buyer prediction payouts, funded entirely by traders' own stakes. Holders of validated words `redeem`; if no word is validated, `refundNoWinners` returns each holder's reserve share.
+- **RewardVault** — bingo bonuses and founder seed payouts, separately pre-funded via `fund` before the event goes Live. Bonuses are tiered and stackable (line, diagonal, double line, full card); founder seeds pay `unit * mult / SCALE` for each validated word the user founded and seeded.
+
+## Tests
+
+Tests live in `contracts/test`: `Bingocle.t.sol` (end-to-end integration across the full game loop) and `Market.t.sol` (market mechanics plus the stateful solvency invariant).
+
+For how these pieces compose into a single game, see the [Game Loop](/guides/game-loop) and [Trust Model](/guides/trust-model) guides.

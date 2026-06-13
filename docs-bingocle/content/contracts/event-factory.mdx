@@ -1,0 +1,120 @@
+# EventFactory
+
+`EventFactory` is the source of truth for event lifecycle, configuration, and scheduling, and it doubles as the registry of every module address. Each event is keyed by an incrementing id (there is no per-event deploy), and its current phase is derived purely from on-chain timestamps so all deadlines are contract-enforced with no external oracle calls.
+
+## Module Registry
+
+After the modules are deployed, the owner wires them once via `wireModules`. Every other contract reads its sibling addresses back from the factory rather than holding them independently, so the factory is the single registry of truth.
+
+```solidity
+function wireModules(
+    address _wordPool,
+    address _wordMarket,
+    address _oracleRegistry,
+    address _cardNFT,
+    address _rewardVault,
+    address _agentIdentity
+) external onlyOwner;
+```
+
+The call is `onlyOwner` and guarded by the `modulesWired` flag: a second call reverts `AlreadyWired`, and any zero address reverts `ZeroModule`. On success it sets each address, flips `modulesWired` to `true`, and emits `ModulesWired`.
+
+| Public getter | Module |
+| --- | --- |
+| `wordPool()` | AI-curated word pool ([/contracts/word-pool](/contracts/word-pool)) |
+| `wordMarket()` | Parimutuel trading market ([/contracts/word-market](/contracts/word-market)) |
+| `oracleRegistry()` | Validation verdict log |
+| `cardNFT()` | Bingo card ERC-721 |
+| `rewardVault()` | Stake escrow and payouts |
+| `agentIdentity()` | Agent identity NFT |
+
+> Note: the factory exposes the module addresses but never calls them. Wiring is a one-time bootstrap step; the field stored at deploy is the owner, set through `Ownable(owner_)`.
+
+## Creating an Event
+
+Any caller may create an event and becomes its **organizer**. The reward pool is funded separately through `RewardVault.fund()`.
+
+```solidity
+function createEvent(
+    address token,
+    uint64 submissionEnd,
+    uint64 founderEnd,
+    uint64 marketLock,
+    uint64 eventEnd,
+    uint64 disputeEnd,
+    uint16 maxWordsPerUser,
+    uint16 cardSize,
+    uint128 founderSeedUnit,
+    BingocleTypes.BonusTiers calldata bonus
+) external returns (uint256 eventId);
+```
+
+| Parameter | Type | Meaning |
+| --- | --- | --- |
+| `token` | `address` | Per-event settlement token; `address(0)` means native MNT, otherwise an ERC20 |
+| `submissionEnd` | `uint64` | Submission window closes |
+| `founderEnd` | `uint64` | Founder-price window closes; public market opens |
+| `marketLock` | `uint64` | Market locks; event goes Live |
+| `eventEnd` | `uint64` | Talk over; oracle stops committing; dispute window opens |
+| `disputeEnd` | `uint64` | Dispute window closes; settlement can finalize |
+| `maxWordsPerUser` | `uint16` | Sybil cap; `0` is coerced to a default of `3` |
+| `cardSize` | `uint16` | Must equal `25`, else reverts `BadCardSize` |
+| `founderSeedUnit` | `uint128` | Notional stake of a founder's free seed (token base units) |
+| `bonus` | `BonusTiers` | Stackable bingo bonus amounts |
+
+The function enforces a **strict, monotonically increasing schedule**:
+
+```text
+block.timestamp < submissionEnd < founderEnd < marketLock < eventEnd < disputeEnd
+```
+
+If any boundary is out of order or equal, it reverts `BadTiming` (equal boundaries would collapse a phase to zero width). On success it increments `eventCount`, returns the new id (`eventId = ++eventCount`), stores the `EventConfig` with `createdAt` set to the current block timestamp, and emits `EventCreated(eventId, organizer, token)`.
+
+> The `maxWordsPerUser` value of `0` is not rejected; it is silently replaced with `3`. Pass an explicit value if you need a different cap.
+
+### BonusTiers
+
+The `BonusTiers` struct holds four stackable bingo bonus amounts (token base units; spec defaults 50/75/100/500):
+
+| Field | Type | Awarded for |
+| --- | --- | --- |
+| `line` | `uint128` | First completed line |
+| `diagonal` | `uint128` | A completed diagonal |
+| `doubleLine` | `uint128` | Two completed lines |
+| `fullCard` | `uint128` | Every cell marked |
+
+## Phases
+
+`phaseOf(eventId)` derives the current `Phase` purely from `block.timestamp` against the stored deadlines. A non-existent id returns `None`; a cancelled event returns `Cancelled` regardless of time.
+
+| Phase | Time window | What is allowed |
+| --- | --- | --- |
+| `None` | id does not exist | Nothing |
+| `Submission` | `t < submissionEnd` | Community submits words (off-chain AI curation) |
+| `Founder` | up to `founderEnd` | Pool committed; founders buy at opening price |
+| `Market` | up to `marketLock` | Public parimutuel trading open |
+| `Live` | up to `eventEnd` | Event running; market locked; oracle commits validations |
+| `Dispute` | up to `disputeEnd` | Validation done; dispute window open |
+| `Settled` | `t >= disputeEnd` | Settlement finalized; claims open |
+| `Cancelled` | any (after `cancel`) | Refunds open |
+
+### Cancellation
+
+```solidity
+function cancel(uint256 eventId) external;
+```
+
+Only the organizer may cancel, and only before `eventEnd` (otherwise `TooLate`; a non-existent id reverts `NotExist`, a non-organizer reverts `NotOrganizer`). It sets the `cancelled` flag and emits `EventCancelled`, after which `phaseOf` returns `Cancelled` so refund flows can open.
+
+## Views
+
+| View | Returns |
+| --- | --- |
+| `exists(eventId)` | `true` when `eventId != 0` and `eventId <= eventCount` |
+| `getConfig(eventId)` | The full `EventConfig` (reverts `NotExist` if absent) |
+| `isOrganizer(eventId, who)` | Whether `who` is the organizer |
+| `phaseOf(eventId)` | Current `Phase`, derived from timestamps |
+| `eventCount` | Total number of events created |
+| `cancelled(eventId)` | Cancellation flag |
+
+For how these phases drive the full game, see [/guides/game-loop](/guides/game-loop).

@@ -1,0 +1,66 @@
+# Frontend Overview
+
+The Bingocle frontend is a Next.js (App Router) web app with a marketing landing page and a dual-mode bingo game: a fully client-side **demo** and a **live on-chain** game backed by contracts on Mantle Sepolia. This page covers the stack, providers, and route-to-component map; for the wiring details see [Routes and Web3](/frontend/routes-and-web3).
+
+## Stack
+
+The app lives under `frontend/` and is built on a deliberately recent toolchain — note this is **not** the Next.js most training data describes.
+
+| Concern | Choice | Notes |
+| --- | --- | --- |
+| Framework | `next@16.2.9` | App Router, React Server Components, SSR enabled |
+| UI runtime | `react@19.2.4` / `react-dom@19.2.4` | |
+| Chain reads/writes | `wagmi@^2.19.5` + `viem@^2.52.2` | Hooks-based contract access |
+| Wallet UI | `@rainbow-me/rainbowkit@^2.2.11` | Dark theme, custom palette |
+| Data/cache | `@tanstack/react-query@^5.101.0` | Backs wagmi's async state |
+| Styling | `tailwindcss@^4` (via `@tailwindcss/postcss`) | |
+| Fonts | `Cinzel`, `Cinzel_Decorative`, `Cormorant_Garamond` | Loaded via `next/font/google` in `app/layout.tsx` |
+| Charts | Custom SVG (`components/app/PriceChart.tsx`) | Hand-built path/area, no charting library |
+
+> The repo's `AGENTS.md` warns that this Next.js version has breaking changes versus older releases — consult `node_modules/next/dist/docs/` before editing app code.
+
+Scripts in `frontend/package.json`: `next dev`, `next build`, `next start`, and `eslint` (run as `npm run dev` / `build` / `start` / `lint`).
+
+## Providers
+
+`app/layout.tsx` is the root layout. It registers the three Google fonts as CSS variables (`--font-cinzel`, `--font-cinzel-decorative`, `--font-cormorant`) on the `html` element, sets the `Bingocle` metadata, and wraps all children in `Web3Provider`.
+
+`components/Web3Provider.tsx` is a client component that nests, outside-in:
+
+- `WagmiProvider` with `wagmiConfig`
+- `QueryClientProvider` with a single lazily-created `QueryClient`
+- `RainbowKitProvider` with a custom `darkTheme` (gold accent `#d9a441`), `modalSize="wide"`, `appName` `Bingocle`, and `initialChain`
+
+The wagmi config lives in `lib/wagmi.ts`, built with RainbowKit's `getDefaultConfig`. Its `chains` array is `[mantleSepoliaTestnet, mantle]` with `ssr: true`, and `initialChain` is exported as `mantleSepoliaTestnet` — so the wallet defaults to the testnet. A real `NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID` enables WalletConnect QR wallets; injected/browser wallets work without it.
+
+## Routes And Components
+
+Routing is **path-based** — each route imports its game component directly.
+
+| Path | Renders | Role |
+| --- | --- | --- |
+| `/` | `app/page.tsx` | Marketing landing (`Hero`, `AboutSection`, `HowToPlay`, `GamePreview`, `BetaSignup`, `Footer`) |
+| `/play` | `components/app/DemoGame.tsx` | Client-side simulated demo, no wallet required |
+| `/app` | `components/app/OnchainGame.tsx` | Live on-chain game on Mantle Sepolia |
+
+Supporting modules under `components/app/`:
+
+| File | Role |
+| --- | --- |
+| `engine.ts` | Pure demo game logic — curation, seeded shuffle, winning lines, bonus tiers, payout math |
+| `data.ts` | Hardcoded demo word pool, oracle script, and mock IPO orders |
+| `PriceChart.tsx` | Custom SVG price chart used by both games |
+| `GameRouter.tsx` | Connection-based switch component (see callout below) |
+
+> `GameRouter.tsx` switches between `DemoGame` and `OnchainGame` based on `useAccount().isConnected`, but it is **not imported by any route** — the live pages select the game by path instead. Treat it as a reference/legacy component rather than the active router.
+
+Both games share the same phase names and layout for visual consistency. See [Routes and Web3](/frontend/routes-and-web3) for the contract hooks and per-route wiring, and [Architecture](/getting-started/architecture) for how the frontend fits the wider system.
+
+## Demo Versus Live: Be Honest
+
+The two surfaces look alike but are fundamentally different:
+
+- **Demo (`/play`)** runs entirely in the browser with **hardcoded data** from `data.ts`. Its card is built by `makeCard` in `engine.ts`, which shuffles the word pool with a `mulberry32` seeded PRNG — a deterministic, **intentionally non-on-chain** shuffle that does not match any contract draw. Curation, oracle verdicts, and payouts are all simulated locally.
+- **Live (`/app`)** performs real contract reads and writes via wagmi/viem against Mantle Sepolia.
+
+In the live game's **AI Oracle — Live** panel, the audio element is a native `<audio controls src="/demo-speech.mp3">` player. It is **decorative**: a reproducible MP3 clip, not real stream ingestion. The panel's own note states that in production the same pipeline could ingest a live YouTube / Twitch / RTMP feed or a microphone, but the shipped frontend does not do live audio capture.

@@ -1,0 +1,96 @@
+# Architecture
+
+Bingocle is a four-layer system: smart contracts on Mantle Sepolia, a Node/TypeScript agent service that runs the AI and signs organizer transactions, a Telegram capability with per-user demo wallets, and a Next.js frontend. This page explains each layer and the integration points that wire them together.
+
+## The Four Layers
+
+```text
++--------------------------------------------------------------+
+|  Frontend (Next.js + wagmi/viem)                             |
+|  reads live state from contracts; reads labels/odds from     |
+|  agent /events/:id; falls back to "Event #N" if agent down   |
++--------------------------------------------------------------+
+        | wagmi reads/writes              | HTTP GET
+        v                                 v
++----------------------------+   +----------------------------+
+|  Smart contracts (Mantle   |   |  Agent service (Node/TS)   |
+|  Sepolia, chainId 5003)    |<--|  Express HTTP API          |
+|  7 contracts wired via     |   |  signs organizer/AI txs    |
+|  EventFactory registry     |   |  with the oracle wallet    |
+|                            |   |  runs 3 Gemini AI roles    |
++----------------------------+   +----------------------------+
+        ^                                 ^
+        | player txs (buy/sell/mint/claim)| HTTP (organizer/AI verbs)
+        |                                 |
++--------------------------------------------------------------+
+|  Capability (Telegram bot, NLU, per-user HD demo wallets)    |
++--------------------------------------------------------------+
+```
+
+> The four layers share **no runtime ABI validation**. Each layer ships its own ABI strategy (see below), so an address or ABI mismatch surfaces only at call time.
+
+## Subsystems
+
+| Subsystem | Responsibility | Stack |
+|---|---|---|
+| **Contracts** | Markets, cards, oracle verdicts, rewards, agent identity | Solidity 0.8.28 (Foundry), Mantle Sepolia |
+| **Agent** | AI Curator, Odds Engine, Validation Oracle; signs organizer/AI txs | Node/TS, Express, `ethers`, Gemini |
+| **Capability** | Telegram chat surface, NLU, per-user wallets | Node/TS, `ethers` |
+| **Frontend** | Public web app: live market + cards | Next.js, wagmi/viem |
+
+See [/contracts/overview](/contracts/overview), [/agent/overview](/agent/overview), [/capability/overview](/capability/overview), and [/frontend/overview](/frontend/overview) for each layer in depth.
+
+## The Contract Registry
+
+The deploy script `contracts/script/Deploy.s.sol` deploys all 7 contracts, then calls `factory.wireModules(...)` **once** to register the addresses of `WordPool`, `WordMarket`, `OracleRegistry`, `BingoCardNFT`, `RewardVault`, and `AgentIdentity` on the `EventFactory`. Every module is constructed with `address(factory)` and resolves its siblings through that registry, so the **factory is the single source of truth for addresses**.
+
+The same script also wires the agent wallet (`AGENT_ADDRESS`, defaulting to the deployer) into the trust graph:
+
+| Call | Effect |
+|---|---|
+| `agentIdentity.setUpdater(address(oracle))` | `OracleRegistry` becomes the only writer of agent reputation |
+| `agentIdentity.registerAgent(agent, "ipfs://bingocle-oracle-agent")` | registers the oracle as an ERC-8004 identity NFT |
+| `wordPool.setCurator(agent)` | the agent wallet is the only address allowed to commit word pools |
+
+## Three ABI Strategies
+
+Each off-chain layer obtains contract ABIs independently — there is no shared package and no cross-layer validation.
+
+- **Agent** loads full Foundry-shaped artifacts (`<Name>.sol/<Name>.json`) via `loadAbi` in `agent/src/chain.ts`. The default path is the bundled `agent/abis` directory (committed so the service runs without a Foundry checkout); override with `CONTRACTS_OUT`.
+- **Capability** embeds **human-readable ABI fragments** (`capability/src/abis.ts`), so the published capability needs no Foundry build or repo checkout.
+- **Frontend** defines **minimal ABI fragments** with viem's `parseAbi` in `frontend/lib/contracts.ts` — only the functions the UI calls.
+
+## Signing and Wallets
+
+The two off-chain layers sign with different keys, by design.
+
+- **Agent** signs every organizer/AI transaction with `AGENT_PRIVATE_KEY`. In `agent/src/chain.ts` the `ethers.Wallet` is wrapped in an `ethers.NonceManager` so back-to-back sends from the single agent wallet do not collide under fast mining.
+- **Capability** players sign their own buy/sell/mint/claim. Each Telegram user gets a deterministic embedded **HD demo wallet** derived from `DEMO_WALLET_MNEMONIC` plus their user id (`walletFor` in `capability/src/wallets.ts`). These are testnet-only demo wallets — no seed phrase or extension required.
+
+> The agent never holds player funds and players never sign organizer/AI actions. This split is also a resilience boundary.
+
+## Why the Verb Split Matters
+
+The capability separates **organizer/AI verbs** from **player verbs**:
+
+- **Organizer/AI verbs** (create event, commit pool, validate) go over HTTP to the agent service — see `agentApi` in `capability/src/api.ts`.
+- **Player verbs** (buy, sell, mint, claim) go **directly on-chain** through the player's demo wallet — see `asUser` in `capability/src/chain.ts`.
+
+Because trading and claiming bypass the agent entirely, those actions **survive agent downtime**. Only AI-driven steps depend on the service being up.
+
+## Frontend Data Flow and Fallback
+
+The frontend reads **live state directly from contracts** via wagmi (event count, phase, prices, shares, card cells, claimable amounts). It reads **off-chain word labels and odds** from the agent's `GET /events/:id` endpoint, because the chain stores only word hashes by index — not text.
+
+`fetchEventRecord` in `frontend/lib/contracts.ts` calls the agent (default `NEXT_PUBLIC_AGENT_API`) and returns `null` on any error. When the record is `null`, the UI falls back to generic `Event #N` labels and the market still functions from on-chain data alone.
+
+## Hashing Words to Indices
+
+On-chain, a word exists only as a `keccak256` hash at a fixed index in its event's pool. Every surface that needs to act on a word maps text to index by hashing:
+
+- The agent computes `wordHash(word) = keccak256(toUtf8Bytes(word))` and an order-sensitive merkle root over the hashes (`agent/src/chain.ts`).
+- The capability's `wordIndexOf` (`capability/src/chain.ts`) scans `wordPool.wordHashOf(eventId, i)` for the matching `keccak256` hash to resolve the index before a buy.
+
+This shared hashing convention is what lets three independently-built layers agree on which word is which without sharing any word list on-chain.
+
+For the end-to-end flow that ties these layers together, see [/guides/game-loop](/guides/game-loop), and for who is trusted with what, see [/guides/trust-model](/guides/trust-model).

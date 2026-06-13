@@ -1,0 +1,85 @@
+# OracleRegistry
+
+`OracleRegistry` is the permanent on-chain audit log of AI Validation Oracle verdicts and the single source of on-chain truth for which words were spoken. Settlement and card marking read **only** the registry's `validatedBitmap` — never the AI directly — so every payout traces back to a signed, timestamped, disputable on-chain record.
+
+## Overview
+
+An ERC-8004 agent (see [AgentIdentity](/contracts/agent-identity)) writes its verdicts here, and that write is what triggers downstream settlement. Each verdict is stored in a `Verdict` struct keyed by `(eventId, wordIndex)`:
+
+```solidity
+struct Verdict {
+    bool validated;
+    bool disputed;
+    uint16 confidence; // 1e4 scale (9700 == 0.97)
+    uint64 timestamp;
+    uint256 agentId;   // committing agent
+}
+```
+
+The two canonical, machine-readable views are a packed bitmap and a counter:
+
+- `validatedBitmap[eventId]` — a `uint256` where bit `w` is set if word index `w` is validated as spoken (post-dispute).
+- `validatedCount[eventId]` — the number of currently-validated words for an event.
+
+> Consumers (WordMarket, BingoCardNFT, RewardVault) read `validatedBitmap` / `validatedCount` exclusively. The AI's opinion only counts once it is committed on-chain and survives the dispute window.
+
+The contract is `Ownable` and holds an immutable reference to the `IEventFactory`, from which it resolves the `WordPool` and `AgentIdentity` module addresses at call time.
+
+## Committing a Verdict
+
+`commitValidation(eventId, wordIndex, confidence, snippet)` records that a word was spoken. It enforces a strict set of preconditions before writing:
+
+| Check | Revert | Meaning |
+| --- | --- | --- |
+| `id.isOracle(msg.sender)` | `NotOracle` | Caller must hold an agent identity (operator wallet is registered) |
+| `factory.exists(eventId)` | `NotExist` | Event must exist |
+| `pool.isCommitted(eventId)` | `NotCommitted` | Word pool must be committed |
+| `wordIndex < pool.wordCount(eventId)` | `BadWord` | Word index in range |
+| `phaseOf(eventId) == Live` | `NotLive` | Event must be in the **Live** phase |
+| `!v.validated` | `AlreadyValidated` | Each word can be validated only once |
+
+On success it: sets the bit for `wordIndex` in `validatedBitmap`, increments `validatedCount`, and records the `Verdict` (`validated`, `confidence` on the `1e4` scale, `timestamp`, and the committing `agentId`). It then accrues reputation on `AgentIdentity`:
+
+- `recordValidation(agentId)` — on **every** committed verdict.
+- `recordEventServed(agentId)` — only on the agent's **first** verdict for that event (tracked via a private `_served` map).
+
+It emits `ValidationCommitted(eventId, wordIndex, agentId, confidence, snippet, timestamp)`. The `snippet` (transcript proof) is emitted in the event log, not stored in contract storage.
+
+## Disputes
+
+| Function | Caller | Phase | Effect |
+| --- | --- | --- | --- |
+| `raiseDispute(eventId, wordIndex)` | Anyone | `Dispute` | Flags a validated verdict as disputed; emits `DisputeRaised` |
+| `resolveDispute(eventId, wordIndex, upheld)` | Owner or organizer | `Dispute` | Resolves the flag; if upheld, reverses the verdict |
+
+`raiseDispute` requires the phase to be `Dispute` (`NotDisputeWindow`) and the verdict to already be validated (`NotValidated`). It sets `v.disputed = true`.
+
+`resolveDispute` requires the caller to be the contract `owner()` or an event organizer (`factory.isOrganizer`), otherwise it reverts with `NotAuthorized`. It also requires the `Dispute` phase and a validated verdict. When `upheld` is `true` it:
+
+- sets `v.validated = false`,
+- clears the bit in `validatedBitmap` (`&= ~(1 << wordIndex)`),
+- decrements `validatedCount`.
+
+Either way it clears `v.disputed` and calls `AgentIdentity.recordDispute(agentId, upheld)` — which increments the agent's `disputesUpheld` counter **only when `upheld` is true**, a permanent ding on the agent's accuracy record. It emits `DisputeResolved(eventId, wordIndex, upheld)`.
+
+> Both dispute functions only work inside the **Dispute** window. A missed window leaves a raised dispute unresolved with no refund — settlement proceeds against whatever is in `validatedBitmap`.
+
+## Views
+
+| View | Returns | Notes |
+| --- | --- | --- |
+| `validatedBitmap(eventId)` | `uint256` | Bitmask of spoken/validated words (post-dispute) |
+| `validatedCount(eventId)` | `uint256` | Count of currently-validated words |
+| `isValidated(eventId, wordIndex)` | `bool` | Whether a single word's verdict is currently validated |
+| `verdicts(eventId, wordIndex)` | `Verdict` | Full public verdict record |
+
+## Errors and Events
+
+- **Errors:** `NotOracle`, `NotExist`, `NotCommitted`, `BadWord`, `NotLive`, `AlreadyValidated`, `NotDisputeWindow`, `NotValidated`, `NotAuthorized`.
+- **Events:** `ValidationCommitted`, `DisputeRaised`, `DisputeResolved`.
+
+## Related Pages
+
+- [AgentIdentity](/contracts/agent-identity) — the ERC-8004 identity NFT that gates `commitValidation` and accrues reputation.
+- [Validation Oracle](/agent/validation-oracle) — the off-chain AI agent that produces and commits verdicts.
+- [Trust Model](/guides/trust-model) — why on-chain verdicts plus a dispute window form the system's accountability layer.

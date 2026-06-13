@@ -1,0 +1,95 @@
+# Wallets & NLU
+
+The Bingocle Capability gives every chat user a wallet without a seed phrase and lets them play in plain English. This page covers the two supporting subsystems: **per-user demo wallets** (`capability/src/wallets.ts`) and **natural-language understanding** (`capability/src/nlu.ts`), plus two helpers — on-chain word lookup (`chain.ts`) and the optional email surface (`email.ts`).
+
+## Per-User Demo Wallets
+
+Every player gets a deterministic testnet wallet derived on the fly from one master mnemonic plus their **user key** — the Telegram user id or the email sender address. There is no signup, no extension, and no seed phrase shown to the user: a Web2-style onboarding flow on top of a Web3 backend.
+
+`walletFor(userId)` in `wallets.ts` does the derivation:
+
+```ts
+export function walletFor(userId: number | string): ethers.HDNodeWallet {
+  const key = String(userId);
+  const cached = cache.get(key);
+  if (cached) return cached;
+  if (!config.demoMnemonic) throw new Error("DEMO_WALLET_MNEMONIC not set");
+
+  const root = ethers.HDNodeWallet.fromPhrase(config.demoMnemonic);
+  const idx = Number(BigInt(ethers.id(key)) % 2_000_000_000n);
+  const child = root.deriveChild(idx).connect(provider());
+  cache.set(key, child);
+  return child;
+}
+```
+
+Step by step:
+
+- The user key is hashed with `ethers.id(key)` (keccak256 of the UTF-8 string) to produce a `uint256`.
+- That hash is reduced modulo `2_000_000_000` (roughly `2e9`) to pick a non-hardened HD child index.
+- The master `HDNodeWallet.fromPhrase(...)` derives that child with `deriveChild(idx)`, then `.connect(provider())` binds it to the configured network.
+- The result is cached in an in-process `Map`, so repeated calls for the same user are free and stable.
+
+The provider is built from `MANTLE_RPC_URL` (default `https://rpc.sepolia.mantle.xyz`) and `CHAIN_ID` (default `5003`) — **Mantle Sepolia**. The master phrase comes from the `DEMO_WALLET_MNEMONIC` environment variable.
+
+> **Custodial, testnet-only model.** Every user's key derives from one shared `DEMO_WALLET_MNEMONIC`, so the operator can sign for any user and a leak of that single phrase compromises every wallet at once. There is **no runtime mainnet guard** — nothing stops it from connecting to a chain holding real value. Never point `DEMO_WALLET_MNEMONIC` at funds you care about. See [Security](/guides/security) for the full trust posture.
+
+## Natural-Language Understanding
+
+`interpret(text)` in `nlu.ts` turns a raw chat message into an `Interpretation`, which is either a resolved command or a plain-text reply:
+
+```ts
+export type Interpretation =
+  | { kind: "command"; cmd: string; rest: string }
+  | { kind: "reply"; text: string };
+```
+
+It uses a three-tier strategy that degrades gracefully, so the entire game works **without a Gemini key** through slash commands.
+
+### Tier 1 — Deterministic Short-Circuit
+
+The message is split into a leading `first` token and the `rest`. A leading `/` is stripped and the token is lowercased to a candidate `verb`. If `isVerb(verb)` is true, the LLM is skipped entirely when **any** of these hold:
+
+- the message starts with `/` (an explicit slash command), or
+- no `GEMINI_API_KEY` is configured, or
+- the args are already in canonical positional form per `looksCanonical(verb, rest)`.
+
+`looksCanonical` encodes the expected shape per verb — for example `pool`, `card`, and `claim` need exactly one integer; `price` needs an event id plus a word; `buy` and `sell` need three tokens with an integer id and a numeric amount. So `buy 1 airdrop 2` short-circuits, while the natural phrasing `buy 2 shares of airdrop in event 1` falls through to Tier 2.
+
+### Tier 2 — Gemini Structured Intent
+
+When `GEMINI_API_KEY` is set, `geminiIntent(text)` calls the model named by `GEMINI_MODEL` (default `gemini-2.5-flash`) with a fixed system prompt that requests a strict JSON object (`responseMimeType: "application/json"`). The schema asks for structured fields rather than a command string:
+
+| Field | Meaning |
+| --- | --- |
+| `action` | one of the Bingocle verbs, or `none` |
+| `eventId` | numeric event id, or `null` |
+| `word` | single word (for `price`/`buy`/`sell`) |
+| `words` | predicted words (for `submit`) |
+| `shares` | share amount as a string |
+| `theme` | event theme (for `create`/`finalize`) |
+| `transcript` | transcript text (for `validate`) |
+| `reply` | a one-line clarifying question if a required field is missing |
+
+`assemble(e)` then rebuilds the **canonical positional arg line** locally (e.g. `submit 1 airdrop, mainnet`), so argument order is never left to the model. If a required field is missing, it returns a friendly `reply` asking for the missing piece instead of guessing. As a guard, a `command` result whose `cmd` fails `isVerb` is discarded, and any LLM or JSON-parse error is caught and falls through.
+
+### Tier 3 — Friendly Fallback
+
+If nothing matched, `interpret` returns a `reply` that nudges the user toward either plain language (`buy 2 shares of airdrop in event 1`) or `/start` to list the commands — never a dead end. For an empty message it returns `START_TEXT`.
+
+See [Commands](/capability/commands) for the full verb list and [Capability Overview](/capability/overview) for how these tiers fit the bot loop.
+
+## On-Chain Word Lookup
+
+Player verbs need a word's numeric index on chain. `wordIndexOf(eventId, word)` in `chain.ts` resolves it from committed hashes rather than storing plaintext:
+
+- read `wordCount(eventId)` from `WordPool`,
+- hash the input with `keccak256(toUtf8Bytes(word))`,
+- loop `0..n`, calling `wordHashOf(eventId, i)` and comparing case-insensitively,
+- return the matching index, or `-1` if not found.
+
+> This is an `O(n)` scan of RPC calls per lookup — one `wordHashOf` call per word in the pool. It is fine for demo-sized pools but is not a constant-time mapping.
+
+## Email Surface (Coded, Not Wired By Default)
+
+`email.ts` implements a second channel using the same command core: it polls IMAP for `UNSEEN` mail, keys each player by their sender address (their demo wallet), parses each line as a command, and falls back to `interpret(...)` for free-text bodies — replying via SMTP. It is runnable as a standalone process (`npm run email`), but the default entrypoint is the Telegram bot (`bot.ts`); the email adapter is implemented but not part of the standard run. It is configured by the `IMAP_*`/`SMTP_*` environment variables (ports default to `993` and `465`, poll interval `EMAIL_POLL_MS` defaults to `15000`).

@@ -1,0 +1,61 @@
+# Security Notes
+
+An honest accounting of Bingocle's security posture. This is a hackathon build deployed to the **Mantle Sepolia testnet**; the contracts and services have **not** been externally audited, and several deliberate shortcuts trade safety for demo velocity. Read this alongside the [Trust Model](/guides/trust-model) before assuming anything about production readiness.
+
+> Bingocle is testnet-only. Never point a wallet, mnemonic, or key holding real value at any part of this stack.
+
+## Threat Summary
+
+The most consequential risks come from the operator-controlled off-chain services (the agent HTTP API and the custodial demo wallets), not the on-chain market math. The contracts are conservative — `ReentrancyGuard` everywhere, checks-effects-interactions, fee-on-transfer guards, and a path-independent reserve invariant — but they have no pause switch and no on-chain access control on the AI roles beyond a single key.
+
+| Severity | Area | Issue | Mitigation / Status |
+| --- | --- | --- | --- |
+| **HIGH** | Custodial wallets | `walletFor()` in `capability/src/wallets.ts` derives every user wallet from one `DEMO_WALLET_MNEMONIC` via non-hardened `deriveChild(idx)`. A single mnemonic leak compromises all user funds. | Testnet-only; enforced by operator discipline, **not code** — there is no mainnet/chainId guard. |
+| **HIGH** | Agent API | `POST /events` has no auth, open CORS (`CORS_ORIGIN` defaults to `*`), and auto-funds the reward pool from the hot wallet on every call. It can be looped to drain the wallet and spam events. | None. Auto-fund default is `30` MNT (`REWARD_FUND_MNT`); see below. |
+| **HIGH** | Agent API | Gemini-backed endpoints `POST /events/:id/commit-pool` and `POST /events/:id/validate` are unauthenticated, so they can be abused for model-quota and cost exhaustion. | None. |
+| **HIGH** | Agent API | `POST /events/:id/sync-pool` overwrites any event's stored labels and odds with caller-supplied data and **no access control**. | None. |
+| **MEDIUM** | Key hygiene | One `AGENT_PRIVATE_KEY` signs the Curator, Oracle, and auto-fund transactions. No rotation, no HSM. | Single shared key; operator-managed. |
+| **MEDIUM** | Identity | `AgentIdentity` has no revocation path: `isOracle()` returns `agentIdOf[who] != 0`, and `agentIdOf` is never cleared. A compromised oracle key cannot be disabled (the token is soulbound and no burn entry point is exposed). | Accepted limitation. |
+| **MEDIUM** | Liveness | `WordMarket` and `RewardVault` payouts are **unpausable**. A malicious or blacklisting ERC-20 — chosen permissionlessly at event creation — can brick `redeem`/`claim` for that event. | Use the native token (`address(0)`) for trusted events. |
+| **MEDIUM** | Gas | `settle`, `redeem`, `refund`, `_ownReserveShare`, and the RewardVault seed loops iterate over the word count (up to **254**) with no pagination. | Word count capped at 254 in `WordPool`/`BingoLib`. |
+| **LOW** | Integrity | `WordPool.merkleRoot` is stored at commit but never verified against word data on-chain. | Off-chain trust only. |
+| **LOW** | Authorization | Organizer-vs-player verbs are not enforced at the API/chat layer; any user can invoke organizer verbs. | On-chain `isOrganizer` still gates fund withdrawals. |
+
+## Custodial Wallet Risk
+
+`capability/src/wallets.ts` is the Web2 onboarding shortcut: a Telegram user plays with no seed phrase. Every wallet is a deterministic child of a single master mnemonic:
+
+```ts
+const root = ethers.HDNodeWallet.fromPhrase(config.demoMnemonic);
+const idx = Number(BigInt(ethers.id(key)) % 2_000_000_000n);
+const child = root.deriveChild(idx).connect(provider());
+```
+
+`deriveChild` is **non-hardened**, so leaking the master extended public key (plus any one child private key) is enough to derive sibling keys. Combined with a single shared mnemonic, one leak is total. There is no runtime check that the configured `chainId` is a testnet. See [Wallets and NLU](/capability/wallets-and-nlu) for how these wallets are used.
+
+## Agent API Exposure
+
+The agent service ([HTTP API](/agent/http-api)) ships every route open. The `createEvent` handler both creates an event and auto-funds its bonus pool in the same unauthenticated call:
+
+```ts
+const fundMnt = Number(req.body?.rewardFundMnt ?? process.env.REWARD_FUND_MNT ?? 30);
+// ...
+await (await contracts.rewardVault().fund(out.eventId, amt, { value: amt })).wait();
+```
+
+Because the wallet is hot and the endpoint is open, an attacker can loop `POST /events` until the wallet is empty, while spamming on-chain events and burning gas. The same lack of auth lets `commit-pool` and `validate` be replayed to exhaust the Gemini quota and rack up cost.
+
+## On-Chain Liveness Caveats
+
+`WordMarket` and `RewardVault` use `ReentrancyGuard` but never import a pause mechanism, so no admin can halt a misbehaving event. Payout (`_pay`) supports both native and ERC-20 tokens; for an ERC-20, a `safeTransfer` to a blacklisted recipient reverts, permanently blocking `redeem`/`claim` for that event since the token was selected at event creation with no allowlist. The native token avoids this class of failure.
+
+## Recommended Hardening (Quick Wins)
+
+- Add authentication and a kill-switch to `POST /events`, and set the auto-fund default (`REWARD_FUND_MNT`) to `0`.
+- Rate-limit and authenticate the Gemini-backed `commit-pool` and `validate` endpoints.
+- Add access control (organizer check or signed request) to `POST /events/:id/sync-pool`.
+- Add a runtime mainnet guard in `wallets.ts` that refuses to derive wallets on a non-testnet `chainId`.
+- Add an oracle revocation path to `AgentIdentity` that clears `agentIdOf` so a compromised key can be disabled without relying on burning the soulbound token.
+- Distinguish HTTP error codes (return `4xx` for bad input and auth failures instead of collapsing everything into the generic `500` from the `wrap` helper).
+
+For the broader trust assumptions behind these choices, see the [Trust Model](/guides/trust-model).

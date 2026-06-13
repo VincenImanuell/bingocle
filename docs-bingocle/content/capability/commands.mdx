@@ -1,0 +1,77 @@
+# Chat Commands
+
+The Bingocle Capability exposes a small, channel-agnostic command core. Every verb lives once in `commands.ts` and is reused by the Telegram bot, the email adapter, and the natural-language layer, so all surfaces behave identically.
+
+## Command Core
+
+`capability/src/commands.ts` defines a single `dispatch(userKey, cmd, rest)` function plus one `cmd*` handler per verb. The `userKey` identifies a player (a Telegram user id or an email address) and maps to that user's embedded testnet demo wallet via `walletFor(userKey)` — see [Wallets and NLU](/capability/wallets-and-nlu).
+
+The canonical verb list is the exported `VERBS` array — **14 verbs** in total:
+
+```ts
+export const VERBS = [
+  "start", "help", "agentguide", "wallet", "create",
+  "submit", "pool", "card", "price", "buy",
+  "sell", "finalize", "validate", "claim",
+] as const;
+```
+
+`isVerb(cmd)` strips a leading `/` and lower-cases before matching, so `/buy`, `buy`, and `BUY` all resolve to the same handler.
+
+## The Verbs
+
+Each verb is either a pure agent-API call, a direct on-chain transaction signed by the per-user wallet, or local text. The table below lists what each does and where the work happens.
+
+| Verb | What it does | On-chain / Agent API |
+|---|---|---|
+| `start` | Print the intro + command list (`START_TEXT`) | Local text |
+| `help` | Same as `start` | Local text |
+| `agentguide` | Print the full operator guide (`AGENT_GUIDE`) | Local text |
+| `wallet` | Show the user's demo wallet address + MNT balance | RPC read (`provider().getBalance`) |
+| `create` | Organizer: create an event, returns `eventId` + `txHash`, seeds an empty inbox | Agent API `POST /events` |
+| `submit` | Store up to 3 predicted words in the in-memory inbox keyed by `eventId` | Off-chain (in-memory) |
+| `finalize` | Organizer: ship the inbox to AI curation + odds + on-chain commit | Agent API `POST /events/:id/commit-pool` |
+| `pool` | Show the committed word pool with prices, multipliers, and phase | Agent API `GET /events/:id` |
+| `card` | Mint the player's bingo card (if absent) and render it | Agent API `GET /events/:id/card/:address` + `BingoCardNFT.mint` |
+| `price` | Quote a word's spot price per share | RPC read (`WordMarket.spotPrice`) |
+| `buy` | Quote then buy shares on the bonding curve | RPC `quoteBuy` + `WordMarket.buy` |
+| `sell` | Quote then sell shares back to the curve | RPC `quoteSell` + `WordMarket.sell` |
+| `validate` | Organizer: run the AI oracle on a transcript and commit verdicts | Agent API `POST /events/:id/validate` |
+| `claim` | Redeem trading payouts, then claim bonuses + founder seeds | `WordMarket.redeem` + `RewardVault.claim` |
+
+> Argument parsing lives entirely in `dispatch`, so every channel parses `buy 7 ai 0.5` the same way. For `buy`/`sell`, the first token is the event id, the last token is the share amount, and everything between is the word.
+
+## The Submit then Finalize Inbox Flow
+
+Submissions are **not** written on-chain immediately. `cmdSubmit` appends each word to an in-memory `inbox` map keyed by `eventId`:
+
+```ts
+const inbox = new Map<number, Sub[]>();
+```
+
+- `cmdSubmit(userKey, id, words)` rejects empty input and caps submissions at **3 words per wallet**. Each entry stores the raw word, the submitter's wallet address, and a Unix timestamp — the first submitter founds each word.
+- `cmdFinalize(id, theme)` reads the accumulated `inbox` entries and posts them to `agentApi.commitPool`. The agent runs the **AI Curator** and **Odds Engine**, then commits the frozen pool on-chain. The reply previews up to the first 6 words with their `price1e4 / 10000` price and `mult1e4 / 10000` multiplier.
+
+This two-step design lets the AI deduplicate and curate the full submission batch in one pass rather than committing words piecemeal. See [the game loop](/guides/game-loop) for the full lifecycle.
+
+## Player Verbs Are Wallet-Signed
+
+`wallet`, `card`, `price`, `buy`, `sell`, and `claim` run against the chain directly from the user's embedded wallet through `asUser(walletFor(userKey))` (bound in `chain.ts`). `price` is a read, while `card`, `buy`, `sell`, and `claim` send signed transactions and `await tx.wait()`.
+
+- **`buy`** calls `read.wordMarket().quoteBuy(...)` for the cost, then `WordMarket.buy(id, idx, sharesWei, cost, { value: cost })`, passing the quoted `cost` as the max-cost slippage cap.
+- **`sell`** quotes with `quoteSell` for display, then calls `WordMarket.sell(id, idx, sharesWei, 0n)` with a min-refund of `0`.
+- **`card`** mints via `BingoCardNFT.mint(id)` only when `view.hasCard` is false, then re-fetches and renders the 5x5 grid.
+
+`wordIndexOf(id, word)` resolves a word's on-chain index by hashing the text with `keccak256` and scanning the committed `WordPool` hashes; `buy`, `sell`, and `price` return a "not in the pool" message when the index is `-1`.
+
+> **Partial-success claim.** `cmdClaim` runs `WordMarket.redeem(id)` and `RewardVault.claim(id)` in **independent** `try`/`catch` blocks. If one rail has nothing to pay, the other still settles — a player who only won trading payouts (or only a bingo bonus) is never blocked by the empty rail.
+
+## Telegram Registration and NLU
+
+`bot.ts` wires the core to Telegram with Telegraf:
+
+- `bot.start(...)` replies with `START_TEXT`.
+- A loop over `VERBS` registers each verb (except `start`) as a slash command, all routed through `dispatch` inside a `guard` wrapper that catches errors and replies with a `shortMessage`.
+- Free-text messages that do **not** begin with `/` are passed to `interpret(text)` from the NLU layer. A `command` intent is dispatched like a slash command; a plain-text intent is replied to directly.
+
+So `/buy 7 ai 0.5` and the sentence "buy 2 shares of airdrop in event 1" reach the same handler. See [Capability Overview](/capability/overview) for how the surfaces fit together and [Wallets and NLU](/capability/wallets-and-nlu) for wallet derivation and intent parsing.

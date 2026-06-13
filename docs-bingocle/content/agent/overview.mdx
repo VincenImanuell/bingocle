@@ -1,0 +1,85 @@
+# Agent Service Overview
+
+The Bingocle **agent service** is a Node/TypeScript process that hosts the three AI roles and acts as the organizer/oracle on-chain signer. It bridges off-chain language models to Mantle: it curates word pools, prices odds, validates live transcripts, and commits the results with the agent wallet.
+
+## What It Does
+
+The service plays two parts at once:
+
+- **AI layer** — it runs three roles backed by Google Gemini: the **Word Curator**, the **Odds Engine**, and the **Validation Oracle**.
+- **Signer** — its single wallet is the registered ERC-8004 oracle operator and the `WordPool` curator, so it is authorized to send the `commitPool` and `commitValidation` style transactions.
+
+> The agent wallet is privileged. It must be the registered oracle operator in `AgentIdentity` and the `WordPool` curator, and it must hold testnet MNT for gas. See [Trust Model](/guides/trust-model) and [Security](/guides/security) for why this is the trust anchor of the system.
+
+## Source Modules
+
+The core wiring lives in `agent/src`. Each module owns one concern:
+
+| Module | Role |
+|---|---|
+| `config.ts` | Loads env, exposes typed `config`, defines `SCALE` |
+| `chain.ts` | ethers v6 provider, signer, contract factories, hash helpers |
+| `store.ts` | Local JSON event store (`agent/.data/events.json`) |
+| `server.ts` | Express HTTP API (the surface the Capability calls) |
+| `ai/gemini.ts` | Gemini client used by all three roles |
+| `ai/curator.ts` | Word Curator role |
+| `ai/odds.ts` | Odds Engine role |
+| `ai/oracle.ts` | Validation Oracle role |
+
+### Configuration
+
+`config.ts` reads environment variables (via `dotenv`). Two are **required** and throw if missing when used: `GEMINI_API_KEY` (`requireGemini`) and `AGENT_PRIVATE_KEY` (`requireSigner`). Everything else has a default:
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `GEMINI_API_KEY` | — (required) | Gemini auth |
+| `GEMINI_MODEL` | `gemini-2.5-flash` | Model id for all roles |
+| `MANTLE_RPC_URL` | `https://rpc.sepolia.mantle.xyz` | JSON-RPC endpoint |
+| `CHAIN_ID` | `5003` | Mantle Sepolia |
+| `AGENT_PRIVATE_KEY` | — (required) | Organizer/oracle signer |
+| `PORT` | `8787` | HTTP listen port |
+| `CONTRACTS_OUT` | `../abis` | ABI artifact directory |
+| `*_ADDRESS` | `""` | Seven deployed contract addresses |
+
+`config.ts` also exports the on-chain fixed-point constant:
+
+```ts
+/** Multipliers/prices are 1e4 fixed-point on-chain (10000 == 1.0x / 1.0). */
+export const SCALE = 10_000;
+```
+
+### Chain Wiring
+
+`chain.ts` builds the ethers v6 stack lazily:
+
+- A `JsonRpcProvider` bound to `rpcUrl` and `chainId`.
+- A `Wallet` from `AGENT_PRIVATE_KEY`, wrapped in an ethers `NonceManager` so back-to-back sends from the single agent wallet do not collide when the provider's pending nonce lags under fast mining.
+- A `contracts` factory with one builder per deployment (`eventFactory`, `wordPool`, `wordMarket`, `oracleRegistry`, `bingoCardNFT`, `rewardVault`, `agentIdentity`), each bound to the nonce-managed runner.
+
+ABIs are loaded from Foundry artifacts at `config.contractsOut` (default the committed `agent/abis`, so the service builds without a Foundry checkout); set `CONTRACTS_OUT` to point at a fresh `contracts/out`. It also exposes two commitment helpers: `wordHash(word)` (`keccak256` of the canonical word, matching `WordPool.wordHashOf`) and `merkleRoot(words)`, an **order-sensitive** merkle root that binds the `index` to `word` mapping (pairs are concatenated in position order, not sorted; the last leaf is duplicated when the layer is odd).
+
+### State Store
+
+`store.ts` is a small JSON file store at `agent/.data/events.json`. Each `EventRecord` holds the event `theme`/`description`, the canonical `words` (index equals the on-chain word index), parallel `founders`, `odds`, optional `decisions`, the `merkleRoot`, the `committedTx` hash, and a `submissions` inbox collected before curation. There is no external database.
+
+## Data Flow
+
+A typical event moves through the service like this:
+
+1. **Create** — `POST /events` creates the on-chain event (organizer equals the agent wallet), stubs a local record, and auto-seeds the reward pool (`REWARD_FUND_MNT`, default 30 MNT).
+2. **Collect** — players `POST /events/:id/submit` their predicted words; the inbox is merged with bot submissions at commit time.
+3. **Curate and price** — `POST /events/:id/commit-pool` runs the Curator then the Odds Engine, then commits the frozen pool on-chain and stores its merkle root.
+4. **Validate** — `POST /events/:id/validate` runs the Validation Oracle over a live transcript chunk and commits verdicts.
+5. **Read** — `GET /events/:id` and `GET /events/:id/card/:address` expose the record, on-chain phase, and a player's marked card.
+
+The full endpoint reference is on the [HTTP API](/agent/http-api) page.
+
+## AI Provider
+
+All three roles call **Google Gemini** through the `@google/generative-ai` SDK, with the model id from `GEMINI_MODEL` (default `gemini-2.5-flash`).
+
+> The `agent/README.md` still references Claude / `claude-opus-4-8` and an `ANTHROPIC_API_KEY`. That is a stale doc — the running code uses Gemini exclusively (`GEMINI_API_KEY`, `gemini-2.5-flash`). The `OPENAI_API_KEY` in `.env.example` is optional and only enables real Whisper speech-to-text for the audio oracle demo.
+
+## Demo and Tooling Scripts
+
+`agent/scripts` ships runnable demos for local end-to-end testing: `trade-bot`, `simulate-players`, `create-demo-event`, `e2e-local`, `validate-text`, and `commit-pool-direct`. The `e2e-local` script proves the full ethers wiring against a local anvil deployment with no API key. See [Local Development](/guides/local-development) for how to run them.

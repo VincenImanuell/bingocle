@@ -1,0 +1,68 @@
+# Trust Model
+
+Bingocle runs AI inference off-chain but settles money on-chain. This page traces how an off-chain verdict becomes canonical truth, names exactly where trust sits, and is clear-eyed about what is *not* verified versus what is provably sound.
+
+## The Verdict-to-Truth Pipeline
+
+A Gemini inference produces a verdict off-chain, but inference alone changes nothing. **Only an on-chain write makes a verdict canonical.**
+
+The service `agent/src/services/oracleRun.ts` (`validateTranscript`) does the gating:
+
+- It reads the current `validatedBitmap(eventId)` so it never re-commits an already-validated word.
+- It runs `matchTranscript` over the pool, then **filters to `confidence >= minConfidence`** (`minConf = args.minConfidence ?? 0.6` — default `0.6`).
+- For each fresh, confident match it scales confidence to the `1e4` fixed-point (`Math.round(m.confidence * SCALE)`) and calls `OracleRegistry.commitValidation(eventId, wordIndex, confidence, snippet)`, awaiting the receipt.
+
+`OracleRegistry` is the **single source of on-chain truth**. `commitValidation` (in `contracts/src/OracleRegistry.sol`) sets the verdict, then flips one bit:
+
+```solidity
+validatedBitmap[eventId] |= (uint256(1) << wordIndex);
+validatedCount[eventId] += 1;
+```
+
+Everything downstream reads **only** that bitmap, never the AI:
+
+| Reader | What it reads | File |
+| --- | --- | --- |
+| `WordMarket.settle` / `redeem` | `_oracle().validatedBitmap(eventId)` | `contracts/src/WordMarket.sol` |
+| `BingoCardNFT.markedMask` | `IOracleRegistry(...).validatedBitmap(eventId)` | `contracts/src/BingoCardNFT.sol` |
+
+So the chain trusts the bitmap, and the bitmap trusts whoever passes `AgentIdentity.isOracle(msg.sender)`. See [Oracle Registry](/contracts/oracle-registry).
+
+## Agent Identity (ERC-8004)
+
+`contracts/script/Deploy.s.sol` wires the agent's authority in three moves, all from the deployer:
+
+- `agentIdentity.setUpdater(address(oracle))` — `OracleRegistry` becomes the **sole** reputation writer (enforced by the `onlyUpdater` modifier).
+- `agentIdentity.registerAgent(agent, "ipfs://bingocle-oracle-agent")` — mints a **soulbound** identity NFT to the agent wallet; `_update` reverts with `Soulbound` on any transfer between non-zero addresses.
+- `wordPool.setCurator(agent)` — the *same* wallet is the AI Curator that commits word pools.
+
+The agent wallet (`AGENT_ADDRESS`, defaulting to the deployer) signs from `AGENT_PRIVATE_KEY`. In `agent/src/chain.ts` an `ethers.Wallet` is wrapped in a `NonceManager` so back-to-back sends from the single wallet do not collide under fast mining.
+
+Reputation accrues to the NFT via `OracleRegistry`: `recordValidation` bumps `validations`, the first commit per event triggers `recordEventServed` (`eventsServed`), and `resolveDispute` calls `recordDispute` to bump `disputesUpheld` when a verdict is overturned. This makes the AI's accuracy a portable, benchmarkable record. See [Agent Identity](/contracts/agent-identity).
+
+## Trust Assumptions
+
+These are the load-bearing assumptions. Read them before trusting a payout.
+
+> **The AI verdict is not verified on-chain.** The contract cannot check that a word was truly spoken — it only checks the caller passes `isOracle` and that the event is `Live`. The committed `snippet` is an event log, not a proof. The only mitigation is the human **dispute window**: `raiseDispute` (anyone) then `resolveDispute` (un-validates if upheld).
+
+> **The merkle root is a social commitment.** `merkleRoot` in `agent/src/chain.ts` builds an order-sensitive root binding `index -> word`, but it is stored, never verified on-chain — the contracts reference words by index only.
+
+> **Dispute resolution is centralized.** `resolveDispute` reverts unless `msg.sender == owner()` or `factory.isOrganizer(eventId, msg.sender)`, and only during the `Dispute` phase. No external arbitration.
+
+> **Single-key risk.** One key (`AGENT_PRIVATE_KEY` / `AGENT_ADDRESS`) is curator, oracle, and auto-funder (`RewardVault.fund`, default `REWARD_FUND_MNT` = `30`). There is no rotation or HSM, and `AgentIdentity` has **no revocation** — `registerAgent` is mint-only.
+
+> **Custodial wallet risk (consumer side).** One `DEMO_WALLET_MNEMONIC` derives every player wallet in the Capability. Testnet-only by design; never point it at a seed holding real value.
+
+## What Is Sound
+
+The economics are sound **regardless of oracle behavior**. `WordMarket` is fee-free: `buy` collects the exact curve cost (rejecting fee-on-transfer tokens), and per-word `reserve` equals the curve area. The contract's token balance for an event therefore always equals `totalReserve`, and settlement only redistributes that reserve:
+
+```solidity
+if (bitmap & (uint256(1) << w) != 0) winners += r;
+else freed += r;
+```
+
+The sum of all payouts equals the total reserve (minus rounding dust), so **payouts are always solvent**. The oracle decides only *who* wins, never *whether* funds exist to pay. Edge cases stay solvent too: `refundNoWinners` returns each holder's reserve share when nothing validated, and `sweepResidual` lets the organizer reclaim dust only after `CLAIM_GRACE` (`30 days`).
+
+For hardening and the broader threat surface, see [Security](/guides/security).

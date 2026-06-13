@@ -1,0 +1,88 @@
+# Validation Oracle
+
+The AI Validation Oracle is the referee: it matches the committed word pool against a live transcript and writes confident verdicts on-chain to the [Oracle Registry](/contracts/oracle-registry). It pairs an LLM matcher with optional speech-to-text, but listening is staged from recorded text or an uploaded file rather than a live stream.
+
+## Overview
+
+The oracle runs as a short pipeline. A transcript chunk plus the numbered pool words go to the LLM, which reports which words were genuinely spoken. The agent filters and de-duplicates those matches, keeps only the confident ones, and commits each as an on-chain validation.
+
+- **Match** — `matchTranscript()` in `agent/src/ai/oracle.ts` calls Gemini against a transcript snippet.
+- **Orchestrate** — `validateTranscript()` in `agent/src/services/oracleRun.ts` skips already-validated words, applies the confidence threshold, and commits.
+- **Transcribe** — `transcribeAudio()` in `agent/src/ai/stt.ts` converts an audio file to text when the audio CLI is used.
+
+> The on-chain commits are real and trigger card marking plus settlement. There is **no live-audio streaming pipeline** — no microphone, RTMP, or WebRTC capture. The demo feeds pre-written text or a single uploaded file, so live listening is staged. See the [Trust Model](/guides/trust-model) for what this means for fairness.
+
+## Matching the Transcript
+
+`matchTranscript()` accepts the transcript chunk, the canonical `pool` (array index equals the on-chain `wordIndex`), and an optional `alreadyValidated` set. It asks the model to match **meaning, not surface form** — for example `artificial intelligence` maps to `AI`, and plurals or verb forms count — while rejecting words that are merely related.
+
+The model returns raw items of `{ wordIndex, confidence, snippet }`. The exported pure helper `filterMatches()` then post-processes them into `OracleMatch[]`:
+
+| Step | Behavior |
+| --- | --- |
+| Bounds check | Drop any `wordIndex < 0` or `wordIndex >= pool.length` |
+| De-duplicate | Skip indices already in `alreadyValidated` or seen earlier in this batch |
+| Clamp | Confidence clamped to the range `0` to `1` via `Math.max`/`Math.min` |
+| Clip snippet | Proof `snippet` truncated to the first `240` characters |
+| Enrich | Attach the canonical `word` from `pool[wordIndex]` |
+
+```ts
+export type OracleMatch = {
+  wordIndex: number;
+  word: string;
+  confidence: number; // 0..1
+  snippet: string; // short transcript proof
+};
+```
+
+## Confidence Threshold and Commits
+
+`validateTranscript()` ties matching to the chain:
+
+1. Look up the event from the local store; throw if its pool was never committed.
+2. Read `OracleRegistry.validatedBitmap(eventId)` and unpack the 256-bit value into a `Set` of indices to skip.
+3. Run `matchTranscript()` with that set.
+4. For each match with `confidence >= minConfidence` (default **`0.6`**), convert confidence to fixed-point and commit.
+
+Confidence is scaled to **1e4 fixed-point** using `SCALE = 10000` from `agent/src/config.ts` (so `1.0` becomes `10000`), via `Math.round(m.confidence * SCALE)`. Each match calls:
+
+```ts
+const conf1e4 = Math.round(m.confidence * SCALE);
+const tx = await registry.commitValidation(args.eventId, m.wordIndex, conf1e4, m.snippet);
+```
+
+The function awaits each receipt and returns `CommitResult[]` (each match plus its `txHash`).
+
+## Speech-to-Text Backends
+
+`transcribeAudio(filePath)` picks a backend automatically and auto-detects the audio MIME type from the file extension:
+
+| Backend | Selected when | Model | Notes |
+| --- | --- | --- | --- |
+| OpenAI Whisper | `OPENAI_API_KEY` is set | `whisper-1` | Raw multipart `fetch` to `v1/audio/transcriptions`, no SDK |
+| Google Gemini | else `GEMINI_API_KEY` is set | `GEMINI_MODEL` or `gemini-2.5-flash` | Multimodal audio, reuses the existing Gemini key |
+
+If neither key is present it throws, directing you to the transcript demo path. `mimeFor()` maps extensions such as `.mp3`, `.wav`, `.m4a`/`.mp4`, `.aac`, `.ogg`, and `.flac`, defaulting to `audio/mpeg`.
+
+## CLIs
+
+Two entry points drive the oracle:
+
+| CLI | Command | Input | Flow |
+| --- | --- | --- | --- |
+| `agent/src/cli/oracle.ts` | `npm run oracle` | Recorded **text** transcript | Splits text on blank lines into chunks (simulating live STT), runs the matcher per chunk, commits |
+| `agent/src/cli/validateAudio.ts` | `tsx src/cli/validateAudio.ts` | Real **audio** file | Transcribes via `transcribeAudio()`, then validates the result |
+
+`cli/oracle.ts` takes `<eventId> [transcript.txt]`, defaulting to `agent/demo/transcript.txt`. It splits on `\n\s*\n` (blank-line paragraphs), trims, drops empties, then loops chunk by chunk:
+
+```bash
+tsx src/cli/oracle.ts <eventId> [path/to/transcript.txt]
+```
+
+`cli/validateAudio.ts` takes `<eventId> <audio.(mp3|wav|m4a)>`, transcribes the file, prints a preview, then commits:
+
+```bash
+tsx src/cli/validateAudio.ts <eventId> <audioFile>
+```
+
+Both print each commit as the matched word, its confidence, and the transaction hash, or report that no new words were validated.

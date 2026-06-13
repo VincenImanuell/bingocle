@@ -1,0 +1,78 @@
+# Introduction
+
+**Bingocle** = **Bing**o + Or**acle** — a community bingo prediction market where the
+entire game loop is run and refereed by **AI agents on the Mantle Network**.
+
+The audience of any live event — a conference, podcast, debate, livestream, or demo
+day — proposes words they predict a speaker will say. AI curates those words into a
+pool and into bingo cards, each word becomes an on-chain prediction asset traded on a
+bonding curve, and an **AI Validation Oracle listens to the event live (speech-to-text
++ LLM) and writes its verdicts straight to a smart contract**. That single on-chain
+write triggers settlement, card marking, and reward distribution — automatically and
+transparently.
+
+No admin marks words by hand. No black box. Every AI decision is recorded permanently
+on-chain — embodying the hackathon's Turing Test theme: on-chain benchmarking of AI,
+agent identity, and radical transparency.
+
+> **Hackathon:** The Turing Test Hackathon 2026 (Phase II — AI Awakening) · Mantle
+> Network · Track 04 — Consumer & Viral DApps (Animoca Minds).
+
+## Two coupled deliverables
+
+Bingocle ships as two halves that share the same contracts:
+
+1. **Bingocle on-chain** — the trust + innovation layer. Seven Solidity contracts on
+   Mantle, the AI Speech Oracle, and a public Next.js web app.
+2. **Bingocle Capability** — the consumer surface. A Minds Bazaar skill that lets
+   anyone create or join an event, submit words, buy positions, watch live, and claim —
+   entirely through chat over Telegram (and email).
+
+## How the pieces fit
+
+| Layer | What lives here | Stack |
+|---|---|---|
+| **Smart contracts** | `EventFactory`, `WordPool`, `WordMarket`, `OracleRegistry`, `BingoCardNFT`, `RewardVault`, `AgentIdentity` | Solidity 0.8.28 · Foundry · OpenZeppelin |
+| **Agent service** | AI Word Curator, Odds Engine, Validation Oracle + an HTTP API and on-chain signer | Node/TS · Express · ethers v6 · Gemini `2.5-flash` |
+| **Capability** | Telegram bot, natural-language understanding, per-user demo wallets | Telegraf · ethers · Gemini |
+| **Frontend** | Landing page, a client-side demo, and the live on-chain market | Next.js · wagmi/viem · RainbowKit |
+
+The agent wallet is registered as the **ERC-8004 oracle identity** and as the
+`WordPool` curator, so one AI identity both curates the pool and commits live verdicts —
+with its accuracy accruing permanently to a soulbound reputation NFT.
+
+## What makes it different
+
+- **A speech oracle as a market primitive.** Settlement is driven by *words actually
+  spoken in a live event* — not price feeds or political outcomes. No existing oracle
+  (Chainlink, UMA, Polymarket) addresses this.
+- **Solvent by construction.** Trading on the bonding curve is fee-free, so the market
+  balance always equals its total reserve. The oracle only decides *who* wins — never
+  whether funds exist to pay them.
+- **Portable AI reputation.** The oracle agent is a soulbound ERC-8004 identity NFT.
+  Validations, events served, and disputes upheld are written on-chain and travel with
+  the agent.
+
+## Deployed addresses (Mantle Sepolia)
+
+Network: Mantle Sepolia (chainId **5003**) · Deployer / Oracle:
+`0x785cF4596b932B4319Eb31b9C353fE7Ae7695D2D`
+
+| Contract | Address |
+|---|---|
+| EventFactory | `0x4ded43273E1b3be15bBBF1A5cE9494f77B045Afb` |
+| WordPool | `0x1F0BebC4D0f7C4B8428Ac2FE14BBeb2178e63C29` |
+| WordMarket | `0x2a853222d57d28a713F45b8F78503376ccF5471b` |
+| OracleRegistry | `0xe998c6F467876b2dA1C5D126EA5576A6943c2073` |
+| BingoCardNFT | `0x1A7643b31EfD272F65fe7D8653fE35172284A1F3` |
+| RewardVault | `0x0B0766bF126180730E408105C35A761D7AADe968` |
+| AgentIdentity (ERC-8004) | `0x6EC7E9AE2dD88fAe0F1851487Fbd15F0b89382A0` |
+
+## Where to go next
+
+- New here? Start with the [Quick Start](/getting-started/quick-start) to run
+  everything locally.
+- Want the big picture? Read the [Architecture](/getting-started/architecture)
+  overview and the end-to-end [Game Loop](/guides/game-loop).
+- Building on the contracts? Jump to the
+  [Smart Contracts Overview](/contracts/overview).
