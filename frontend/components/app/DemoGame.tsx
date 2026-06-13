@@ -118,6 +118,9 @@ export default function DemoGame() {
   // ── live transcript ──
   const [transcriptChars, setTranscriptChars] = useState(0);
 
+  // ── organizer countdown before event goes live ──
+  const [waitCountdown, setWaitCountdown] = useState(0);
+
   // ── derived ──
   const founderWords = useMemo(
     () => pool.filter((w) => w.isUserWord).map((w) => w.word),
@@ -255,6 +258,18 @@ export default function DemoGame() {
     );
     return () => clearTimeout(t);
   }, [phase, transcriptChars, speed]);
+
+  useEffect(() => {
+    if (waitCountdown <= 0) return;
+    if (waitCountdown === 1) {
+      setWaitCountdown(0);
+      setTranscriptChars(0);
+      setPhase("live");
+      return;
+    }
+    const t = setTimeout(() => setWaitCountdown((c) => c - 1), 1000);
+    return () => clearTimeout(t);
+  }, [waitCountdown]);
 
   useEffect(() => {
     if (phase !== "live") return;
@@ -413,6 +428,7 @@ export default function DemoGame() {
     setPrices(Object.fromEntries(BASE_POOL.map((w) => [w.word, w.price])));
     setPriceFlash(null);
     setTranscriptChars(0);
+    setWaitCountdown(0);
     setBanner(null);
   }
 
@@ -1007,10 +1023,25 @@ export default function DemoGame() {
                     <div className="stat-row"><dt>Balance</dt><dd>{fmt(balance)} USDC</dd></div>
                     <div className="stat-row"><dt>Total staked</dt><dd>{fmt(spent)} USDC</dd></div>
                   </div>
-                  <button type="button" className="btn btn-gold mt-6 w-full"
-                    onClick={() => { setTranscriptChars(0); setPhase("live"); }}>
-                    ▶ Lock Market — Start Live Event
-                  </button>
+
+                  {waitCountdown === 0 ? (
+                    <button type="button" className="btn btn-gold mt-6 w-full"
+                      onClick={() => setWaitCountdown(4)}>
+                      ✓ I'm Ready — Lock My Positions
+                    </button>
+                  ) : (
+                    <div className="mt-6 rounded-lg border px-4 py-4 text-center"
+                      style={{ borderColor: "rgba(43,227,212,0.25)", background: "rgba(0,30,27,0.3)" }}>
+                      <p className="kicker mb-1" style={{ color: "#2be3d4" }}>Positions locked ✓</p>
+                      <p className="text-sm text-cream/70 mb-2">
+                        Waiting for organizer to start the event…
+                      </p>
+                      <p className="h-display text-4xl text-gold-bright">{waitCountdown}</p>
+                      <p className="text-xs text-cream/30 mt-2">
+                        In production: organizer presses go on-chain · no early exit after lock
+                      </p>
+                    </div>
+                  )}
                 </>
               )}
 
