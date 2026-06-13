@@ -746,7 +746,7 @@ export default function OnchainGame() {
                     ))}
                   </div>
                   <div className="flex gap-2 items-center mb-3">
-                    <label className="kicker text-[10px]">Amount (MNT)</label>
+                    <label className="kicker text-xs">Amount (MNT)</label>
                     <input
                       type="number" step="0.001" min="0.001"
                       className="input-dark flex-1 text-sm text-center py-1"
@@ -804,7 +804,7 @@ export default function OnchainGame() {
                               <span className="text-xs font-bold" style={{ color: isUp ? "#2be3d4" : "#e07a4a" }}>
                                 {fmt(cur)} MNT
                               </span>
-                              <span className="text-[9px] ml-1" style={{ color: isUp ? "#2be3d4" : "#e07a4a" }}>
+                              <span className="text-[11px] ml-1" style={{ color: isUp ? "#2be3d4" : "#e07a4a" }}>
                                 {isUp ? "+" : ""}{pct.toFixed(1)}%
                               </span>
                             </div>
@@ -882,7 +882,7 @@ export default function OnchainGame() {
                   <span className="animate-pulse" style={{ color: "#2be3d4", letterSpacing: 2 }}>▉ ▍ ▉ ▎ ▉</span>
                   <span className="text-xs text-cream/70">Listening → matching pool words → writing verdicts on-chain…</span>
                 </div>
-                <p className="text-[10px] text-cream/40 mt-2">
+                <p className="text-xs text-cream/40 mt-2">
                   Demo input is an MP3 clip (efficient + reproducible). In production the same STT → on-chain
                   pipeline can ingest a live feed — a YouTube/Twitch/RTMP stream or a mic.
                 </p>
