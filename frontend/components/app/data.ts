@@ -38,27 +38,28 @@ export type OracleEvent = {
   heard?: string;
   snippet: string;
   conf: number;
-  gap: number;
+  charPos: number; // character position in SPEECH_TEXT that triggers this event
 };
 
+// Ordered by charPos so tiles light up exactly when the word appears in the typewriter
 export const ORACLE_SCRIPT: OracleEvent[] = [
-  { word: "AI", snippet: "…so when we plugged the model in, the AI started flagging duplicates on its own…", conf: 0.97, gap: 3 },
-  { word: "Community", snippet: "…none of this ships without the community testing every single build…", conf: 0.95, gap: 5 },
-  { word: "Mainnet", snippet: "…we are targeting mainnet before the end of the quarter…", conf: 0.96, gap: 5 },
-  { word: null, heard: "tokenomics", snippet: "…the tokenomics deck is forty slides, I will spare you…", conf: 0.38, gap: 4 },
-  { word: "Demo", snippet: "…let me switch over to the live demo real quick…", conf: 0.98, gap: 5 },
-  { word: "Hackathon", snippet: "…this whole thing started as a hackathon side project…", conf: 0.94, gap: 5 },
-  { word: "Wallet", snippet: "…you sign it straight from your wallet, no seed phrase, nothing…", conf: 0.92, gap: 5 },
-  { word: "__USER__", snippet: "…and yes — {WORD} — you heard that right, it is on the roadmap…", conf: 0.93, gap: 5 },
-  { word: "Token", snippet: "…the token simply routes value back to the players…", conf: 0.91, gap: 5 },
-  { word: "Builder", snippet: "…every builder in this room has shipped something this week…", conf: 0.9, gap: 5 },
-  { word: null, heard: "finance", snippet: "…and obviously none of this is financial advice, folks…", conf: 0.35, gap: 4 },
-  { word: "Mantle", snippet: "…settlement happens on Mantle, fees stay near zero…", conf: 0.97, gap: 5 },
-  { word: "Oracle", snippet: "…the AI oracle writes its verdict straight on-chain…", conf: 0.95, gap: 5 },
-  { word: "Funding", snippet: "…we closed our first funding round late last month…", conf: 0.93, gap: 5 },
-  { word: "Launch", snippet: "…the public launch is penciled in for early July…", conf: 0.92, gap: 5 },
-  { word: "Testnet", snippet: "…everything you just saw runs on the testnet today…", conf: 0.96, gap: 5 },
-  { word: "Chain", snippet: "…every verdict is recorded on the chain, permanently…", conf: 0.9, gap: 5 },
+  { word: "Community", snippet: "…none of this ships without the community testing every single build…", conf: 0.95, charPos: 83 },
+  { word: "Builder", snippet: "…every builder in this room has shipped something remarkable this week…", conf: 0.9, charPos: 113 },
+  { word: "AI", snippet: "…so when we plugged the model in, the AI started flagging duplicates on its own…", conf: 0.97, charPos: 206 },
+  { word: "Mainnet", snippet: "…we are targeting mainnet before the end of the quarter…", conf: 0.96, charPos: 266 },
+  { word: null, heard: "tokenomics", snippet: "…the tokenomics deck is forty slides, I will spare you…", conf: 0.38, charPos: 315 },
+  { word: "Wallet", snippet: "…you sign it straight from your wallet, no seed phrase, nothing…", conf: 0.92, charPos: 391 },
+  { word: "Mantle", snippet: "…settlement happens on Mantle, fees stay near zero…", conf: 0.97, charPos: 458 },
+  { word: "Funding", snippet: "…we closed our first funding round late last month…", conf: 0.93, charPos: 526 },
+  { word: "Testnet", snippet: "…everything runs on the testnet all quarter…", conf: 0.96, charPos: 571 },
+  { word: "Chain", snippet: "…every verdict is recorded on the chain, permanently…", conf: 0.9, charPos: 636 },
+  { word: "Hackathon", snippet: "…this whole thing started as a hackathon side project…", conf: 0.94, charPos: 705 },
+  { word: "Oracle", snippet: "…the AI oracle writes its verdict straight on-chain…", conf: 0.95, charPos: 767 },
+  { word: "Token", snippet: "…the token simply routes value back to the players…", conf: 0.91, charPos: 845 },
+  { word: "Demo", snippet: "…let me switch over to the live demo real quick…", conf: 0.98, charPos: 938 },
+  { word: "__USER__", snippet: "…and yes — {WORD} — you heard that right, it is on the roadmap…", conf: 0.93, charPos: 998 },
+  { word: null, heard: "finance", snippet: "…and obviously none of this is financial advice, folks…", conf: 0.35, charPos: 1045 },
+  { word: "Launch", snippet: "…the public launch is penciled in for early July…", conf: 0.92, charPos: 1073 },
 ];
 
 export const DEMO_EVENT = {

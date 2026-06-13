@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useAccount } from "wagmi";
 import ConnectWalletButton from "../ConnectWalletButton";
 import {
@@ -41,8 +41,8 @@ type FeedEntry = {
 type IpoBid = {
   id: number;
   word: string;
-  bidPrice: number; // max price willing to pay
-  amount: number;   // USDC locked
+  bidPrice: number;
+  amount: number;
 };
 
 type IpoResult = IpoBid & {
@@ -52,6 +52,118 @@ type IpoResult = IpoBid & {
   allocated: boolean;
 };
 
+type PricePoint = { time: number; price: number };
+
+// ── PriceChart component ──
+function PriceChart({
+  history,
+  height = 80,
+  compact = false,
+}: {
+  history: PricePoint[];
+  height?: number;
+  compact?: boolean;
+}) {
+  if (history.length < 2) {
+    return (
+      <div style={{ height }} className="flex items-center justify-center">
+        <span className="text-[9px] text-cream/20">collecting…</span>
+      </div>
+    );
+  }
+  const W = 300;
+  const H = height;
+  const vals = history.map((p) => p.price);
+  const minP = Math.min(...vals);
+  const maxP = Math.max(...vals);
+  const range = maxP - minP || 0.001;
+  const pad = compact ? 2 : 14;
+  const toX = (i: number) => ((i / (history.length - 1)) * W).toFixed(1);
+  const toY = (p: number) =>
+    (H - pad - ((p - minP) / range) * (H - pad * 2)).toFixed(1);
+  const linePath = history
+    .map((pt, i) => `${i === 0 ? "M" : "L"} ${toX(i)} ${toY(pt.price)}`)
+    .join(" ");
+  const areaPath = `${linePath} L ${toX(history.length - 1)} ${H} L 0 ${H} Z`;
+  const current = history[history.length - 1].price;
+  const isUp = current >= history[0].price;
+  const color = isUp ? "#2be3d4" : "#e07a4a";
+  const fmtTime = (ts: number) => {
+    const d = new Date(ts);
+    return `${d.getHours().toString().padStart(2, "0")}:${d.getMinutes().toString().padStart(2, "0")}`;
+  };
+  const gradId = `cg-${compact ? "c" : "d"}-${isUp ? "u" : "d"}`;
+  return (
+    <div style={{ width: "100%" }}>
+      <svg
+        viewBox={`0 0 ${W} ${H}`}
+        preserveAspectRatio="none"
+        style={{ width: "100%", height, display: "block" }}
+      >
+        <defs>
+          <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor={color} stopOpacity="0.18" />
+            <stop offset="100%" stopColor={color} stopOpacity="0.01" />
+          </linearGradient>
+        </defs>
+        <path d={areaPath} fill={`url(#${gradId})`} />
+        <path
+          d={linePath}
+          fill="none"
+          stroke={color}
+          strokeWidth="1.6"
+          strokeLinejoin="round"
+          strokeLinecap="round"
+        />
+        <circle
+          cx={toX(history.length - 1)}
+          cy={toY(current)}
+          r="2.5"
+          fill={color}
+        />
+        {!compact && (
+          <>
+            <text
+              x="2"
+              y="10"
+              fontSize="7"
+              fill="rgba(205,187,150,0.45)"
+              textAnchor="start"
+            >
+              {maxP.toFixed(3)}
+            </text>
+            <text
+              x="2"
+              y={H - 2}
+              fontSize="7"
+              fill="rgba(205,187,150,0.45)"
+              textAnchor="start"
+            >
+              {minP.toFixed(3)}
+            </text>
+          </>
+        )}
+      </svg>
+      {!compact && (
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            fontSize: "9px",
+            color: "rgba(205,187,150,0.35)",
+            marginTop: 2,
+          }}
+        >
+          <span>{fmtTime(history[0].time)}</span>
+          <span>{fmtTime(history[Math.floor(history.length / 2)].time)}</span>
+          <span>{fmtTime(history[history.length - 1].time)}</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── helpers ──
 const PHASE_STEPS: { key: Phase; label: string }[] = [
   { key: "event", label: "Event" },
   { key: "words", label: "Submit" },
@@ -72,6 +184,22 @@ const CREATE_STEPS = [
 
 const fmt = (n: number) => Number(n.toFixed(2)).toString();
 
+function initPriceHistory(): Record<string, PricePoint[]> {
+  const now = Date.now();
+  const out: Record<string, PricePoint[]> = {};
+  BASE_POOL.forEach((w) => {
+    let p = w.price;
+    const pts: PricePoint[] = [];
+    for (let i = 29; i >= 0; i--) {
+      p = Math.max(0.05, p * (1 + (Math.random() * 0.08 - 0.04)));
+      pts.push({ time: now - i * 90_000, price: +p.toFixed(3) });
+    }
+    pts[pts.length - 1].price = w.price; // anchor last point to actual base price
+    out[w.word] = pts;
+  });
+  return out;
+}
+
 export default function DemoGame() {
   const { address } = useAccount();
 
@@ -89,6 +217,7 @@ export default function DemoGame() {
   const [feed, setFeed] = useState<FeedEntry[]>([]);
   const [bonuses, setBonuses] = useState<Bonus[]>([]);
   const [bonusKeys, setBonusKeys] = useState<Set<string>>(new Set());
+  const bonusKeysRef = useRef<Set<string>>(new Set());
   const [eventIdx, setEventIdx] = useState(0);
   const [speed, setSpeed] = useState(1);
   const [elapsed, setElapsed] = useState(0);
@@ -98,7 +227,7 @@ export default function DemoGame() {
   // ── event creation ──
   const [createStep, setCreateStep] = useState(0);
 
-  // ── IPO pre-orders (placed during words phase) ──
+  // ── IPO pre-orders ──
   const [ipoBids, setIpoBids] = useState<IpoBid[]>([]);
   const [bidWord, setBidWord] = useState("");
   const [bidPrice, setBidPrice] = useState("0.50");
@@ -109,16 +238,22 @@ export default function DemoGame() {
   // ── curation ──
   const [curatStep, setCuratStep] = useState(0);
 
-  // ── market prices + fluctuation ──
+  // ── market prices + history ──
   const [prices, setPrices] = useState<Record<string, number>>(
     () => Object.fromEntries(BASE_POOL.map((w) => [w.word, w.price]))
+  );
+  const pricesRef = useRef<Record<string, number>>(
+    Object.fromEntries(BASE_POOL.map((w) => [w.word, w.price]))
+  );
+  const [priceHistory, setPriceHistory] = useState<Record<string, PricePoint[]>>(
+    initPriceHistory
   );
   const [priceFlash, setPriceFlash] = useState<string | null>(null);
 
   // ── live transcript ──
   const [transcriptChars, setTranscriptChars] = useState(0);
 
-  // ── organizer countdown before event goes live ──
+  // ── organizer countdown ──
   const [waitCountdown, setWaitCountdown] = useState(0);
 
   // ── derived ──
@@ -137,8 +272,8 @@ export default function DemoGame() {
       return [
         {
           ...e,
-          word: founderWords[0],
           snippet: e.snippet.replace("{WORD}", founderWords[0].toLowerCase()),
+          word: founderWords[0],
         },
       ];
     });
@@ -170,6 +305,16 @@ export default function DemoGame() {
 
   // ── Effects ──
 
+  // keep pricesRef in sync
+  useEffect(() => {
+    pricesRef.current = prices;
+  }, [prices]);
+
+  // keep bonusKeysRef in sync
+  useEffect(() => {
+    bonusKeysRef.current = bonusKeys;
+  }, [bonusKeys]);
+
   useEffect(() => {
     if (phase !== "event" || createStep >= CREATE_STEPS.length) return;
     const t = setTimeout(() => setCreateStep((s) => s + 1), 680);
@@ -183,30 +328,25 @@ export default function DemoGame() {
     return () => clearTimeout(t);
   }, [phase, curatStep, curatLog.length]);
 
-  /* build card once curation finishes */
   useEffect(() => {
     if (phase !== "curate" || curatStep !== curatLog.length + 1 || card) return;
     setCard(makeCard(pool.map((w) => w.word), Date.now() & 0xffffffff));
   }, [phase, curatStep, curatLog.length, card, pool]);
 
-  /* compute IPO settlement once card is ready */
   useEffect(() => {
     if (phase !== "curate" || !card || ipoResults.length > 0) return;
     if (ipoBids.length === 0) return;
-
     const results: IpoResult[] = ipoBids.map((bid) => {
       const wordInfo = pool.find((w) => w.word === bid.word);
       const openingPrice = wordInfo?.price ?? 0.5;
       const inCard = card.includes(bid.word);
       const priceOk = bid.bidPrice >= openingPrice;
-      const allocated = inCard && priceOk;
-      return { ...bid, openingPrice, inCard, priceOk, allocated };
+      return { ...bid, openingPrice, inCard, priceOk, allocated: inCard && priceOk };
     });
     setIpoResults(results);
     setIpoSettleStep(0);
   }, [phase, card, ipoBids, pool, ipoResults.length]);
 
-  /* animate IPO settlement step by step */
   useEffect(() => {
     if (ipoResults.length === 0 || ipoSettleStep >= ipoResults.length) return;
     const t = setTimeout(() => {
@@ -222,23 +362,32 @@ export default function DemoGame() {
     return () => clearTimeout(t);
   }, [ipoResults, ipoSettleStep]);
 
+  // market price fluctuation — uses pricesRef to avoid stale closure, updates history too
   useEffect(() => {
     if (phase !== "market") return;
     const t = setInterval(() => {
-      setPrices((prev) => {
-        const next = { ...prev };
-        const keys = Object.keys(next);
-        const count = 2 + Math.floor(Math.random() * 3);
-        const moved: string[] = [];
-        for (let i = 0; i < count; i++) {
-          const k = keys[Math.floor(Math.random() * keys.length)];
-          const delta = Math.random() * 0.16 - 0.08;
-          next[k] = Math.max(0.1, +(next[k] * (1 + delta)).toFixed(3));
-          moved.push(`${k} ${delta > 0 ? "▲" : "▼"}`);
-        }
-        setPriceFlash(moved.join("  "));
-        return next;
+      const now = Date.now();
+      const cur = pricesRef.current;
+      const keys = Object.keys(cur);
+      const count = 2 + Math.floor(Math.random() * 3);
+      const updates: Record<string, number> = {};
+      const moved: string[] = [];
+      for (let i = 0; i < count; i++) {
+        const k = keys[Math.floor(Math.random() * keys.length)];
+        const delta = Math.random() * 0.16 - 0.08;
+        updates[k] = Math.max(0.1, +((cur[k] ?? 0.5) * (1 + delta)).toFixed(3));
+        moved.push(`${k} ${delta > 0 ? "▲" : "▼"}`);
+      }
+      setPrices((prev) => ({ ...prev, ...updates }));
+      setPriceHistory((h) => {
+        const nh = { ...h };
+        keys.forEach((k) => {
+          const price = updates[k] ?? cur[k] ?? 0.5;
+          nh[k] = [...(nh[k] ?? []).slice(-49), { time: now, price }];
+        });
+        return nh;
       });
+      if (moved.length) setPriceFlash(moved.join("  "));
     }, 3200);
     return () => clearInterval(t);
   }, [phase]);
@@ -249,9 +398,10 @@ export default function DemoGame() {
     return () => clearTimeout(t);
   }, [priceFlash]);
 
+  // transcript typewriter
   useEffect(() => {
     if (phase !== "live" || transcriptChars >= SPEECH_TEXT.length) return;
-    const charsPerTick = Math.ceil(speed * 3);
+    const charsPerTick = Math.max(1, Math.ceil(speed * 3));
     const t = setTimeout(
       () => setTranscriptChars((c) => Math.min(c + charsPerTick, SPEECH_TEXT.length)),
       55 / speed
@@ -259,49 +409,45 @@ export default function DemoGame() {
     return () => clearTimeout(t);
   }, [phase, transcriptChars, speed]);
 
-  useEffect(() => {
-    if (waitCountdown <= 0) return;
-    if (waitCountdown === 1) {
-      setWaitCountdown(0);
-      setTranscriptChars(0);
-      setPhase("live");
-      return;
-    }
-    const t = setTimeout(() => setWaitCountdown((c) => c - 1), 1000);
-    return () => clearTimeout(t);
-  }, [waitCountdown]);
-
+  // oracle events — fire when transcript reaches each word's charPos (in sync!)
   useEffect(() => {
     if (phase !== "live") return;
     if (eventIdx >= script.length) {
-      const t = setTimeout(() => setPhase("settled"), 3000 / speed);
-      return () => clearTimeout(t);
+      if (transcriptChars >= SPEECH_TEXT.length) {
+        const t = setTimeout(() => setPhase("settled"), 1500);
+        return () => clearTimeout(t);
+      }
+      return;
     }
     const e = script[eventIdx];
-    const t = setTimeout(() => {
-      setFeed((f) => [
-        { id: eventIdx, word: e.word as string | null, heard: e.heard, snippet: e.snippet, conf: e.conf },
-        ...f,
-      ]);
-      if (e.word) {
-        const next = new Set(validated);
-        next.add(e.word as string);
-        setValidated(next);
-        if (card) {
-          const fresh = bonusesFor(card, next, bonusKeys);
-          if (fresh.length > 0) {
-            setBonuses((b) => [...b, ...fresh]);
-            const nk = new Set(bonusKeys);
-            fresh.forEach((bn) => nk.add(BONUS_KEYS[bn.label]));
-            setBonusKeys(nk);
-            setBanner(fresh.map((bn) => `${bn.label} +${bn.amount} USDC`).join("  ·  "));
-          }
-        }
-      }
-      setEventIdx((i) => i + 1);
-    }, (e.gap * 1000) / speed);
-    return () => clearTimeout(t);
-  }, [phase, eventIdx, speed, script, card, bonusKeys, validated]);
+    if (transcriptChars < e.charPos) return;
+
+    const wordToValidate =
+      e.word === "__USER__"
+        ? (founderWords[0] ?? null)
+        : (e.word as string | null);
+
+    setFeed((f) => [
+      { id: eventIdx, word: wordToValidate, heard: e.heard, snippet: e.snippet, conf: e.conf },
+      ...f,
+    ]);
+    if (wordToValidate) {
+      setValidated((prev) => new Set([...prev, wordToValidate]));
+    }
+    setEventIdx((i) => i + 1);
+  }, [phase, eventIdx, transcriptChars, script, founderWords]);
+
+  // bonus computation runs when validated changes (uses ref to avoid stale bonusKeys)
+  useEffect(() => {
+    if (!card || validated.size === 0) return;
+    const fresh = bonusesFor(card, validated, bonusKeysRef.current);
+    if (fresh.length === 0) return;
+    setBonuses((b) => [...b, ...fresh]);
+    const nk = new Set(bonusKeysRef.current);
+    fresh.forEach((bn) => nk.add(BONUS_KEYS[bn.label]));
+    setBonusKeys(nk);
+    setBanner(fresh.map((bn) => `${bn.label} +${bn.amount} USDC`).join("  ·  "));
+  }, [validated, card]); // bonusKeysRef read via ref to avoid loop
 
   useEffect(() => {
     if (phase !== "live") return;
@@ -315,6 +461,18 @@ export default function DemoGame() {
     return () => clearTimeout(t);
   }, [banner]);
 
+  useEffect(() => {
+    if (waitCountdown <= 0) return;
+    if (waitCountdown === 1) {
+      setWaitCountdown(0);
+      setTranscriptChars(0);
+      setPhase("live");
+      return;
+    }
+    const t = setTimeout(() => setWaitCountdown((c) => c - 1), 1000);
+    return () => clearTimeout(t);
+  }, [waitCountdown]);
+
   // ── Actions ──
 
   function submitWord() {
@@ -322,14 +480,11 @@ export default function DemoGame() {
     const result = curateWord(wordInput, pool);
     setCurations((c) => [...c, result]);
     if (result.status === "accepted") {
-      setPool((p) => {
-        const removed = SWAP_ORDER[p.filter((w) => w.isUserWord).length];
-        return [
-          ...p.filter((w) => w.word !== removed),
-          { word: result.word, ...USER_WORD_INFO, isUserWord: true },
-        ];
-      });
       const removed = SWAP_ORDER[pool.filter((w) => w.isUserWord).length];
+      setPool((p) => [
+        ...p.filter((w) => w.word !== removed),
+        { word: result.word, ...USER_WORD_INFO, isUserWord: true },
+      ]);
       const affected = ipoBids.filter((b) => b.word === removed);
       if (affected.length > 0) {
         const refundTotal = affected.reduce((s, b) => s + b.amount, 0);
@@ -346,11 +501,11 @@ export default function DemoGame() {
     const amount = parseFloat(bidAmount);
     if (!word || isNaN(price) || price <= 0 || isNaN(amount) || amount <= 0) return;
     if (amount > balance - ipoLocked) return;
-    if (!pool.find((w) => w.word.toLowerCase() === word.toLowerCase())) return;
-    const canonical = pool.find((w) => w.word.toLowerCase() === word.toLowerCase())!.word;
+    const match = pool.find((w) => w.word.toLowerCase() === word.toLowerCase());
+    if (!match) return;
     setIpoBids((prev) => [
       ...prev,
-      { id: Date.now(), word: canonical, bidPrice: price, amount },
+      { id: Date.now(), word: match.word, bidPrice: price, amount },
     ]);
     setBalance((b) => Math.round((b - amount) * 100) / 100);
   }
@@ -366,10 +521,15 @@ export default function DemoGame() {
     if (phase !== "market") return;
     const amt = Math.min(amount, balance);
     if (amt <= 0) return;
+    const newPrice = Math.min(3.0, +((pricesRef.current[word] ?? 0.5) * 1.038).toFixed(3));
     setPositions((p) => ({ ...p, [word]: (p[word] ?? 0) + amt }));
     setBalance((b) => Math.round((b - amt) * 100) / 100);
     setSpent((s) => Math.round((s + amt) * 100) / 100);
-    setPrices((prev) => ({ ...prev, [word]: Math.min(3.0, +(prev[word] * 1.038).toFixed(3)) }));
+    setPrices((prev) => ({ ...prev, [word]: newPrice }));
+    setPriceHistory((h) => ({
+      ...h,
+      [word]: [...(h[word] ?? []).slice(-49), { time: Date.now(), price: newPrice }],
+    }));
   }
 
   function sell(word: string, amount: number) {
@@ -378,10 +538,15 @@ export default function DemoGame() {
     const sellAmt = Math.min(amount, pos);
     if (sellAmt <= 0) return;
     const refund = Math.round(sellAmt * 0.88 * 100) / 100;
+    const newPrice = Math.max(0.1, +((pricesRef.current[word] ?? 0.5) * 0.964).toFixed(3));
     setPositions((p) => ({ ...p, [word]: Math.max(0, pos - sellAmt) }));
     setBalance((b) => Math.round((b + refund) * 100) / 100);
     setSpent((s) => Math.round(Math.max(0, s - sellAmt) * 100) / 100);
-    setPrices((prev) => ({ ...prev, [word]: Math.max(0.1, +(prev[word] * 0.964).toFixed(3)) }));
+    setPrices((prev) => ({ ...prev, [word]: newPrice }));
+    setPriceHistory((h) => ({
+      ...h,
+      [word]: [...(h[word] ?? []).slice(-49), { time: Date.now(), price: newPrice }],
+    }));
   }
 
   const rewardRows = useMemo(
@@ -413,6 +578,7 @@ export default function DemoGame() {
     setFeed([]);
     setBonuses([]);
     setBonusKeys(new Set());
+    bonusKeysRef.current = new Set();
     setEventIdx(0);
     setSpeed(1);
     setElapsed(0);
@@ -425,7 +591,10 @@ export default function DemoGame() {
     setIpoResults([]);
     setIpoSettleStep(0);
     setCuratStep(0);
-    setPrices(Object.fromEntries(BASE_POOL.map((w) => [w.word, w.price])));
+    const baseP = Object.fromEntries(BASE_POOL.map((w) => [w.word, w.price]));
+    setPrices(baseP);
+    pricesRef.current = baseP;
+    setPriceHistory(initPriceHistory());
     setPriceFlash(null);
     setTranscriptChars(0);
     setWaitCountdown(0);
@@ -519,7 +688,11 @@ export default function DemoGame() {
                     {STARTING_BALANCE} demo USDC
                   </p>
                   <div className="mt-6 text-center">
-                    <button type="button" className="btn btn-gold" onClick={() => setPhase("words")}>
+                    <button
+                      type="button"
+                      className="btn btn-gold"
+                      onClick={() => setPhase("words")}
+                    >
                       Join Event →
                     </button>
                   </div>
@@ -532,7 +705,6 @@ export default function DemoGame() {
         {/* ═══ WORD SUBMISSION + IPO PRE-ORDER ═══ */}
         {phase === "words" && (
           <div className="mx-auto max-w-xl space-y-5">
-            {/* Word submission */}
             <div className="ornate-frame p-6 sm:p-8">
               <h1 className="h-display text-center text-3xl sm:text-4xl">
                 Submit your <span className="gold">words</span>
@@ -587,13 +759,11 @@ export default function DemoGame() {
                 Book a <span className="gold">position</span> now
               </h2>
               <p className="body-copy text-sm mb-4">
-                Like a stock IPO — deposit before the card is formed. If your word
-                ends up on the card{" "}
-                <strong className="text-cream/90">and</strong> your bid price ≥ the
-                AI&apos;s opening price, your position is confirmed. Otherwise your
-                deposit is fully refunded.
+                Like a stock IPO — deposit before the card is formed. If your word ends
+                up on the card <strong className="text-cream/90">and</strong> your bid
+                price ≥ the AI&apos;s opening price, your position is confirmed.
+                Otherwise your deposit is fully refunded.
               </p>
-
               <div className="grid grid-cols-[1fr_auto_auto] gap-2 items-end">
                 <div>
                   <label className="kicker block mb-1">Word</label>
@@ -634,28 +804,35 @@ export default function DemoGame() {
                   />
                 </div>
               </div>
-
-              {/* hint: show opening price for chosen word */}
-              {bidWord && (() => {
-                const w = pool.find((p) => p.word.toLowerCase() === bidWord.toLowerCase());
-                if (!w) return (
-                  <p className="text-xs text-amber-400/70 mt-1">
-                    "{bidWord}" not in current pool — check spelling
-                  </p>
-                );
-                return (
-                  <p className="text-xs text-cream/40 mt-1">
-                    AI opening price for <strong className="text-cream/70">{w.word}</strong>:{" "}
-                    <strong className="text-gold">{w.price} USDC</strong> ·{" "}
-                    {parseFloat(bidPrice) >= w.price ? (
-                      <span style={{ color: "#2be3d4" }}>bid OK — will be allocated if on card ✓</span>
-                    ) : (
-                      <span className="text-amber-400">bid too low — will be refunded ✗</span>
-                    )}
-                  </p>
-                );
-              })()}
-
+              {bidWord &&
+                (() => {
+                  const w = pool.find(
+                    (p) => p.word.toLowerCase() === bidWord.toLowerCase()
+                  );
+                  if (!w)
+                    return (
+                      <p className="text-xs text-amber-400/70 mt-1">
+                        &ldquo;{bidWord}&rdquo; not in current pool — check spelling
+                      </p>
+                    );
+                  const ok = parseFloat(bidPrice) >= w.price;
+                  return (
+                    <p className="text-xs text-cream/40 mt-1">
+                      AI opening price for{" "}
+                      <strong className="text-cream/70">{w.word}</strong>:{" "}
+                      <strong className="text-gold">{w.price} USDC</strong> ·{" "}
+                      {ok ? (
+                        <span style={{ color: "#2be3d4" }}>
+                          bid OK — allocated if on card ✓
+                        </span>
+                      ) : (
+                        <span className="text-amber-400">
+                          bid too low — will be refunded ✗
+                        </span>
+                      )}
+                    </p>
+                  );
+                })()}
               <button
                 type="button"
                 className="btn btn-gold mt-4 w-full"
@@ -668,11 +845,10 @@ export default function DemoGame() {
               >
                 Place IPO Order · Lock {bidAmount} USDC
               </button>
-
               <p className="text-xs text-cream/30 mt-2 text-center">
-                Available to lock: {fmt(balance - ipoLocked)} USDC · Total locked: {fmt(ipoLocked)} USDC
+                Available to lock: {fmt(balance - ipoLocked)} USDC · Total locked:{" "}
+                {fmt(ipoLocked)} USDC
               </p>
-
               {ipoBids.length > 0 && (
                 <div className="mt-4 border-t border-gold/15 pt-3">
                   <p className="kicker mb-2">Your pre-orders ({ipoBids.length})</p>
@@ -689,7 +865,8 @@ export default function DemoGame() {
                             {ok ? "✓" : "!"}
                           </span>
                           <span className="text-xs flex-1 text-cream/80">
-                            <strong>{b.word}</strong> · bid {b.bidPrice} · {fmt(b.amount)} USDC locked
+                            <strong>{b.word}</strong> · bid {b.bidPrice} ·{" "}
+                            {fmt(b.amount)} USDC locked
                           </span>
                           <button
                             type="button"
@@ -705,12 +882,14 @@ export default function DemoGame() {
                 </div>
               )}
             </div>
-
             <div className="text-center">
               <button
                 type="button"
                 className="btn btn-gold"
-                onClick={() => { setCuratStep(0); setPhase("curate"); }}
+                onClick={() => {
+                  setCuratStep(0);
+                  setPhase("curate");
+                }}
               >
                 {submissions > 0 ? "Continue — AI Curates Card →" : "Skip — Let AI Choose →"}
               </button>
@@ -726,7 +905,6 @@ export default function DemoGame() {
               <h1 className="h-display text-center text-3xl sm:text-4xl mb-6">
                 Assembling <span className="gold">Bingo Card</span>
               </h1>
-
               <div className="space-y-1.5 max-h-64 overflow-y-auto pr-1">
                 {curatLog.slice(0, curatStep).map((entry) => (
                   <div
@@ -739,13 +917,19 @@ export default function DemoGame() {
                   >
                     <span
                       className={`shrink-0 w-8 text-right text-xs font-bold ${
-                        entry.prob >= 70 ? "text-teal-400" : entry.prob >= 45 ? "text-gold" : "text-cream/40"
+                        entry.prob >= 70
+                          ? "text-teal-400"
+                          : entry.prob >= 45
+                            ? "text-gold"
+                            : "text-cream/40"
                       }`}
                     >
                       {entry.prob}%
                     </span>
                     <span className="font-bold text-cream min-w-[72px]">{entry.word}</span>
-                    <span className="text-cream/50 text-xs italic truncate flex-1">{entry.reason}</span>
+                    <span className="text-cream/50 text-xs italic truncate flex-1">
+                      {entry.reason}
+                    </span>
                     {entry.isUser && <span className="founder-tag shrink-0">✦ Yours</span>}
                     <span className="text-teal-400 shrink-0 text-xs font-bold">✓</span>
                   </div>
@@ -757,7 +941,6 @@ export default function DemoGame() {
                 )}
               </div>
 
-              {/* Card assembled */}
               {curatStep > curatLog.length && card && (
                 <div className="mt-6 border-t border-gold/15 pt-5">
                   <p className="kicker text-center mb-4">Card assembled — 25 tiles</p>
@@ -773,7 +956,6 @@ export default function DemoGame() {
                     ))}
                   </div>
 
-                  {/* IPO settlement results */}
                   {ipoBids.length > 0 && (
                     <div className="mt-6">
                       <p className="kicker mb-3">Settling IPO Pre-orders</p>
@@ -800,8 +982,8 @@ export default function DemoGame() {
                               {r.inCard ? "in card ✓" : "not in card ✗"}
                               {r.inCard && (
                                 <>
-                                  {" · "}
-                                  bid {r.bidPrice} {r.priceOk ? "≥" : "<"} opening {r.openingPrice}{" "}
+                                  {" · "}bid {r.bidPrice}{" "}
+                                  {r.priceOk ? "≥" : "<"} opening {r.openingPrice}{" "}
                                   {r.priceOk ? "✓" : "✗"}
                                 </>
                               )}
@@ -831,7 +1013,6 @@ export default function DemoGame() {
                     </div>
                   )}
 
-                  {/* Proceed button — show after settlement done (or immediately if no bids) */}
                   {(ipoBids.length === 0 || ipoSettleStep >= ipoResults.length) && (
                     <div className="mt-6 text-center">
                       {founderSeeds.size > 0 && (
@@ -868,7 +1049,10 @@ export default function DemoGame() {
                     </span>
                     <span className="hud-plate hidden xl:inline-flex">{DEMO_EVENT.name}</span>
                     <span className="hud-plate">
-                      <span className={`dot ${phase === "live" ? "live" : "gold"}`} aria-hidden="true" />
+                      <span
+                        className={`dot ${phase === "live" ? "live" : "gold"}`}
+                        aria-hidden="true"
+                      />
                       {phase === "market" && "Oracle · Standing by"}
                       {phase === "live" && `Oracle · Listening ${elapsed}s`}
                       {phase === "settled" && "Oracle · Settled"}
@@ -879,20 +1063,27 @@ export default function DemoGame() {
                     {card.map((w) => {
                       const free = w === FREE;
                       const hit = !free && validated.has(w);
-                      const own = (positions[w] ?? 0) > 0 || founderSeeds.has(w);
+                      const own =
+                        (positions[w] ?? 0) > 0 || founderSeeds.has(w);
                       return (
                         <button
                           type="button"
                           key={w}
                           className={`bingo-tile ${free ? "free" : ""} ${hit ? "hit" : ""} ${selected === w ? "sel" : ""}`}
-                          onClick={() => !free && phase === "market" && setSelected(w)}
+                          onClick={() =>
+                            !free && phase === "market" && setSelected(w)
+                          }
                           disabled={free || phase !== "market"}
-                          aria-label={free ? "Free tile" : `${w}${hit ? " — validated" : ""}`}
+                          aria-label={
+                            free ? "Free tile" : `${w}${hit ? " — validated" : ""}`
+                          }
                         >
                           {w}
                           {own && !free && (
                             <span className="owned-chip" aria-hidden="true">
-                              {founderSeeds.has(w) && (positions[w] ?? 0) === 0 ? "✦" : fmt(positions[w] ?? 0)}
+                              {founderSeeds.has(w) && (positions[w] ?? 0) === 0
+                                ? "✦"
+                                : fmt(positions[w] ?? 0)}
                             </span>
                           )}
                         </button>
@@ -904,7 +1095,7 @@ export default function DemoGame() {
                     {phase === "market"
                       ? "Tap a tile to trade · prices are live"
                       : phase === "live"
-                        ? "Tiles light up as AI validates spoken words"
+                        ? "Tiles light up as AI hears each word in the transcript"
                         : "Final card — oracle settled"}
                   </p>
                 </div>
@@ -917,9 +1108,13 @@ export default function DemoGame() {
                       <span
                         aria-hidden="true"
                         style={{
-                          width: 7, height: 7, borderRadius: "50%",
-                          background: "#2be3d4", boxShadow: "0 0 8px rgba(0,198,184,0.9)",
-                          display: "inline-block", flexShrink: 0,
+                          width: 7,
+                          height: 7,
+                          borderRadius: "50%",
+                          background: "#2be3d4",
+                          boxShadow: "0 0 8px rgba(0,198,184,0.9)",
+                          display: "inline-block",
+                          flexShrink: 0,
                           animation: "pulse-dot 1.6s ease-in-out infinite",
                         }}
                       />
@@ -928,7 +1123,12 @@ export default function DemoGame() {
                     <div className="font-body text-sm text-cream/80 leading-relaxed max-h-28 overflow-y-auto">
                       {SPEECH_TEXT.slice(0, transcriptChars)}
                       {transcriptChars < SPEECH_TEXT.length && (
-                        <span className="animate-pulse" style={{ color: "#2be3d4" }}>▌</span>
+                        <span
+                          className="animate-pulse"
+                          style={{ color: "#2be3d4" }}
+                        >
+                          ▌
+                        </span>
                       )}
                     </div>
                   </div>
@@ -940,10 +1140,13 @@ export default function DemoGame() {
             <div className="game-panel">
               {phase === "market" && (
                 <>
-                  <div className="flex items-center justify-between gap-2 mb-4">
+                  <div className="flex items-center justify-between gap-2 mb-3">
                     <h2 className="step-title text-sm">Word Market — Live Prices</h2>
                     {priceFlash && (
-                      <span className="text-[10px] font-mono animate-pulse" style={{ color: "rgba(43,227,212,0.6)" }}>
+                      <span
+                        className="text-[10px] font-mono animate-pulse"
+                        style={{ color: "rgba(43,227,212,0.6)" }}
+                      >
                         {priceFlash}
                       </span>
                     )}
@@ -951,22 +1154,49 @@ export default function DemoGame() {
 
                   {selectedInfo ? (
                     <div>
-                      <div className="flex items-baseline justify-between mb-3">
+                      <button
+                        type="button"
+                        className="text-xs text-cream/30 hover:text-cream/60 transition underline block mb-3"
+                        onClick={() => setSelected(null)}
+                      >
+                        ← All words
+                      </button>
+                      <div className="flex items-baseline justify-between mb-2">
                         <span className="h-display text-2xl">{selectedInfo.word}</span>
-                        {selectedInfo.isUserWord && <span className="founder-tag">✦ Founder</span>}
+                        {selectedInfo.isUserWord && (
+                          <span className="founder-tag">✦ Founder</span>
+                        )}
                       </div>
+
+                      {/* Big price chart */}
+                      <div
+                        className="mb-4 rounded-lg border border-gold/10 bg-black/20 p-2"
+                        style={{ minHeight: 140 }}
+                      >
+                        <PriceChart
+                          history={(priceHistory[selectedInfo.word] ?? []).slice(-30)}
+                          height={130}
+                          compact={false}
+                        />
+                      </div>
+
                       <div className="space-y-2 mb-4">
-                        {[
-                          ["Price", `${fmt(prices[selectedInfo.word] ?? selectedInfo.price)} USDC`],
-                          ["Multiplier", `${selectedInfo.mult}×`],
-                          ["AI probability", `${Math.round(selectedInfo.aiProb * 100)}%`],
+                        {(
                           [
-                            "Your position",
-                            `${fmt(positions[selectedInfo.word] ?? 0)} USDC${
-                              founderSeeds.has(selectedInfo.word) ? " + free seed" : ""
-                            }`,
-                          ],
-                        ].map(([k, v]) => (
+                            [
+                              "Price",
+                              `${fmt(prices[selectedInfo.word] ?? selectedInfo.price)} USDC`,
+                            ],
+                            ["Multiplier", `${selectedInfo.mult}×`],
+                            ["AI probability", `${Math.round(selectedInfo.aiProb * 100)}%`],
+                            [
+                              "Your position",
+                              `${fmt(positions[selectedInfo.word] ?? 0)} USDC${
+                                founderSeeds.has(selectedInfo.word) ? " + free seed" : ""
+                              }`,
+                            ],
+                          ] as const
+                        ).map(([k, v]) => (
                           <div key={k} className="stat-row">
                             <dt>{k}</dt>
                             <dd className={k === "Multiplier" ? "text-teal-glow" : ""}>{v}</dd>
@@ -975,43 +1205,81 @@ export default function DemoGame() {
                       </div>
                       <div className="flex flex-wrap gap-2">
                         {[1, 5, 10].map((amt) => (
-                          <button key={`b${amt}`} type="button" className="btn btn-mini-gold"
-                            onClick={() => buy(selectedInfo.word, amt)} disabled={balance < 1}>
+                          <button
+                            key={`b${amt}`}
+                            type="button"
+                            className="btn btn-mini-gold"
+                            onClick={() => buy(selectedInfo.word, amt)}
+                            disabled={balance < 1}
+                          >
                             Buy +{amt}
                           </button>
                         ))}
                         {(positions[selectedInfo.word] ?? 0) > 0 &&
                           [1, 5].map((amt) => (
-                            <button key={`s${amt}`} type="button" className="btn btn-blood"
+                            <button
+                              key={`s${amt}`}
+                              type="button"
+                              className="btn btn-blood"
                               style={{ fontSize: "0.62rem" }}
-                              onClick={() => sell(selectedInfo.word, amt)}>
+                              onClick={() => sell(selectedInfo.word, amt)}
+                            >
                               Sell -{amt}
                             </button>
                           ))}
                       </div>
-                      <button type="button"
-                        className="mt-3 text-xs text-cream/30 hover:text-cream/60 transition underline block"
-                        onClick={() => setSelected(null)}>
-                        ← All words
-                      </button>
                     </div>
                   ) : (
                     <div>
                       <p className="body-copy text-sm mb-3">
-                        Prices move with demand. Sell before the event locks to exit.
-                        IPO positions already showing on your card.
+                        Prices move with demand. Tap any word to see its chart and trade.
+                        IPO positions already locked on your card.
                       </p>
-                      <div className="grid grid-cols-2 gap-1.5">
-                        {pool.slice(0, 8).map((w) => {
+                      <div
+                        className="space-y-1.5 overflow-y-auto pr-1"
+                        style={{ maxHeight: 340 }}
+                      >
+                        {pool.map((w) => {
                           const cur = prices[w.word] ?? w.price;
-                          const up = cur > w.price;
+                          const hist = priceHistory[w.word] ?? [];
+                          const startP = hist[0]?.price ?? w.price;
+                          const pct = ((cur - startP) / startP) * 100;
+                          const isUp = cur >= startP;
                           return (
-                            <button key={w.word} type="button" onClick={() => setSelected(w.word)}
-                              className="flex items-center justify-between rounded-lg border border-gold/15 bg-black/25 px-2.5 py-2 text-xs hover:border-gold/40 transition">
-                              <span className="font-bold text-cream truncate">{w.word}</span>
-                              <span className="font-bold ml-1 shrink-0" style={{ color: up ? "#2be3d4" : "#e07a4a" }}>
-                                {fmt(cur)}
-                              </span>
+                            <button
+                              key={w.word}
+                              type="button"
+                              onClick={() => setSelected(w.word)}
+                              className="w-full rounded-lg border border-gold/10 bg-black/20 px-3 py-2 hover:border-gold/35 transition text-left"
+                            >
+                              <div className="flex items-center justify-between mb-1">
+                                <span className="text-xs font-bold text-cream truncate">
+                                  {w.word}
+                                  {founderSeeds.has(w.word) && (
+                                    <span className="ml-1 text-gold text-[9px]">✦</span>
+                                  )}
+                                </span>
+                                <div className="text-right shrink-0 ml-2">
+                                  <span
+                                    className="text-xs font-bold"
+                                    style={{ color: isUp ? "#2be3d4" : "#e07a4a" }}
+                                  >
+                                    {fmt(cur)}
+                                  </span>
+                                  <span
+                                    className="text-[9px] ml-1"
+                                    style={{ color: isUp ? "#2be3d4" : "#e07a4a" }}
+                                  >
+                                    {isUp ? "+" : ""}
+                                    {pct.toFixed(1)}%
+                                  </span>
+                                </div>
+                              </div>
+                              <PriceChart
+                                history={hist.slice(-20)}
+                                height={28}
+                                compact
+                              />
                             </button>
                           );
                         })}
@@ -1020,25 +1288,42 @@ export default function DemoGame() {
                   )}
 
                   <div className="mt-5 border-t border-gold/15 pt-4 space-y-1.5">
-                    <div className="stat-row"><dt>Balance</dt><dd>{fmt(balance)} USDC</dd></div>
-                    <div className="stat-row"><dt>Total staked</dt><dd>{fmt(spent)} USDC</dd></div>
+                    <div className="stat-row">
+                      <dt>Balance</dt>
+                      <dd>{fmt(balance)} USDC</dd>
+                    </div>
+                    <div className="stat-row">
+                      <dt>Total staked</dt>
+                      <dd>{fmt(spent)} USDC</dd>
+                    </div>
                   </div>
 
                   {waitCountdown === 0 ? (
-                    <button type="button" className="btn btn-gold mt-6 w-full"
-                      onClick={() => setWaitCountdown(4)}>
-                      ✓ I'm Ready — Lock My Positions
+                    <button
+                      type="button"
+                      className="btn btn-gold mt-6 w-full"
+                      onClick={() => setWaitCountdown(4)}
+                    >
+                      ✓ I&apos;m Ready — Lock My Positions
                     </button>
                   ) : (
-                    <div className="mt-6 rounded-lg border px-4 py-4 text-center"
-                      style={{ borderColor: "rgba(43,227,212,0.25)", background: "rgba(0,30,27,0.3)" }}>
-                      <p className="kicker mb-1" style={{ color: "#2be3d4" }}>Positions locked ✓</p>
+                    <div
+                      className="mt-6 rounded-lg border px-4 py-4 text-center"
+                      style={{
+                        borderColor: "rgba(43,227,212,0.25)",
+                        background: "rgba(0,30,27,0.3)",
+                      }}
+                    >
+                      <p className="kicker mb-1" style={{ color: "#2be3d4" }}>
+                        Positions locked ✓
+                      </p>
                       <p className="text-sm text-cream/70 mb-2">
                         Waiting for organizer to start the event…
                       </p>
                       <p className="h-display text-4xl text-gold-bright">{waitCountdown}</p>
                       <p className="text-xs text-cream/30 mt-2">
-                        In production: organizer presses go on-chain · no early exit after lock
+                        In production: organizer triggers on-chain · no early exit after
+                        lock
                       </p>
                     </div>
                   )}
@@ -1054,8 +1339,14 @@ export default function DemoGame() {
                     {phase === "live" && (
                       <span className="flex items-center gap-1">
                         {[1, 2, 4].map((s) => (
-                          <button key={s} type="button" className={`chip-btn ${speed === s ? "on" : ""}`}
-                            onClick={() => setSpeed(s)}>{s}×</button>
+                          <button
+                            key={s}
+                            type="button"
+                            className={`chip-btn ${speed === s ? "on" : ""}`}
+                            onClick={() => setSpeed(s)}
+                          >
+                            {s}×
+                          </button>
                         ))}
                       </span>
                     )}
@@ -1063,9 +1354,19 @@ export default function DemoGame() {
 
                   {phase === "settled" && (
                     <div className="mt-4">
-                      <div className="rounded-lg border px-4 py-3 mb-4"
-                        style={{ borderColor: "rgba(43,227,212,0.2)", background: "rgba(0,30,27,0.3)" }}>
-                        <p className="step-title text-xs mb-2" style={{ color: "#2be3d4" }}>AI Oracle Report</p>
+                      <div
+                        className="rounded-lg border px-4 py-3 mb-4"
+                        style={{
+                          borderColor: "rgba(43,227,212,0.2)",
+                          background: "rgba(0,30,27,0.3)",
+                        }}
+                      >
+                        <p
+                          className="step-title text-xs mb-2"
+                          style={{ color: "#2be3d4" }}
+                        >
+                          AI Oracle Report
+                        </p>
                         <div className="space-y-1">
                           {[
                             ["Words in pool", String(pool.length)],
@@ -1075,17 +1376,30 @@ export default function DemoGame() {
                           ].map(([k, v]) => (
                             <div key={k} className="stat-row">
                               <dt>{k}</dt>
-                              <dd style={k === "Validated ✓" ? { color: "#2be3d4" } : undefined}>{v}</dd>
+                              <dd
+                                style={
+                                  k === "Validated ✓" ? { color: "#2be3d4" } : undefined
+                                }
+                              >
+                                {v}
+                              </dd>
                             </div>
                           ))}
                         </div>
                       </div>
 
-                      <h3 className="h-display text-2xl mb-3">Settlement <span className="gold">&amp; Rewards</span></h3>
+                      <h3 className="h-display text-2xl mb-3">
+                        Settlement <span className="gold">&amp; Rewards</span>
+                      </h3>
                       <div className="space-y-1.5">
                         {rewardRows.map((r, i) => (
                           <div key={i} className="stat-row">
-                            <dt>{r.word} {r.seed ? "(founder seed)" : `· ${fmt(r.stake)} staked`}</dt>
+                            <dt>
+                              {r.word}{" "}
+                              {r.seed
+                                ? "(founder seed)"
+                                : `· ${fmt(r.stake)} staked`}
+                            </dt>
                             <dd className="text-teal-glow">+{fmt(r.payout)}</dd>
                           </div>
                         ))}
@@ -1096,7 +1410,9 @@ export default function DemoGame() {
                           </div>
                         ))}
                         {rewardRows.length === 0 && bonuses.length === 0 && (
-                          <p className="body-copy text-base">No winning positions — try more words next round!</p>
+                          <p className="body-copy text-base">
+                            No winning positions — try more words next round!
+                          </p>
                         )}
                         <div className="stat-row border-t border-gold/20 pt-2">
                           <dt>Total rewards</dt>
@@ -1105,52 +1421,86 @@ export default function DemoGame() {
                         <div className="stat-row">
                           <dt>Profit (after {fmt(spent)} staked)</dt>
                           <dd className={profit >= 0 ? "text-teal-glow" : ""}>
-                            {profit >= 0 ? "+" : ""}{fmt(profit)} USDC
+                            {profit >= 0 ? "+" : ""}
+                            {fmt(profit)} USDC
                           </dd>
                         </div>
                       </div>
 
                       {!claimed ? (
-                        <button type="button" className="btn btn-gold mt-5 w-full" onClick={claim}>
+                        <button
+                          type="button"
+                          className="btn btn-gold mt-5 w-full"
+                          onClick={claim}
+                        >
                           Claim {fmt(rewardTotal)} USDC on Mantle
                         </button>
                       ) : (
                         <>
                           <p className="curation accepted mt-4">
-                            Claimed! Balance: <strong>{fmt(balance)} USDC</strong>
+                            Claimed! Balance:{" "}
+                            <strong>{fmt(balance)} USDC</strong>
                           </p>
                           <div className="mt-5">
-                            <h3 className="step-title text-xs mb-2">Leaderboard — Human vs AI</h3>
+                            <h3 className="step-title text-xs mb-2">
+                              Leaderboard — Human vs AI
+                            </h3>
                             <div className="space-y-1.5">
                               {[...RIVALS, { name: `${who} (you)`, kind: "Human", profit }]
                                 .sort((a, b) => b.profit - a.profit)
                                 .map((r, i) => (
                                   <div key={r.name} className="stat-row">
-                                    <dt>{i + 1}. {r.name} <span className="kicker">· {r.kind}</span></dt>
+                                    <dt>
+                                      {i + 1}. {r.name}{" "}
+                                      <span className="kicker">· {r.kind}</span>
+                                    </dt>
                                     <dd className={r.profit >= 0 ? "text-teal-glow" : ""}>
-                                      {r.profit >= 0 ? "+" : ""}{fmt(r.profit)}
+                                      {r.profit >= 0 ? "+" : ""}
+                                      {fmt(r.profit)}
                                     </dd>
                                   </div>
                                 ))}
                             </div>
                           </div>
-                          <div className="mt-5 rounded-lg border px-4 py-3"
-                            style={{ borderColor: "rgba(217,164,65,0.2)", background: "rgba(0,0,0,0.3)" }}>
-                            <p className="step-title text-xs mb-2" style={{ color: "#e8c66b" }}>✦ Trustless by Design</p>
+                          <div
+                            className="mt-5 rounded-lg border px-4 py-3"
+                            style={{
+                              borderColor: "rgba(217,164,65,0.2)",
+                              background: "rgba(0,0,0,0.3)",
+                            }}
+                          >
+                            <p
+                              className="step-title text-xs mb-2"
+                              style={{ color: "#e8c66b" }}
+                            >
+                              ✦ Trustless by Design
+                            </p>
                             <p className="step-desc text-xs leading-relaxed mb-2">
-                              AI oracle verdicts commit on-chain — no admin override after event starts.
-                              Organizers fund prize pools and can cancel before go-live (full refund). Results are immutable.
+                              AI oracle verdicts commit on-chain — no admin override after
+                              event starts. Organizers fund prize pools and can cancel
+                              before go-live (full refund). Results are immutable.
                             </p>
                             <p className="step-desc text-xs leading-relaxed">
-                              <strong style={{ color: "#cdbb96" }}>AI risk disclosed upfront:</strong>{" "}
-                              Whisper may miss words in poor audio. Ambiguous homophones may not match.
-                              Players accept oracle risk before any trade is placed — same as how prediction
-                              markets agree on resolution sources in advance.
+                              <strong style={{ color: "#cdbb96" }}>
+                                Staking mechanics:
+                              </strong>{" "}
+                              Stakes on words the speaker doesn&apos;t say are forfeited
+                              into the prize pool, which pays validated-word holders at
+                              their multiplier. No organizer takes the forfeited amount —
+                              it funds other players&apos; wins.
                             </p>
                           </div>
                           <div className="mt-5 flex gap-3">
-                            <button type="button" className="btn btn-ghost flex-1" onClick={reset}>Play Again</button>
-                            <Link href="/" className="btn btn-gold flex-1">Back Home</Link>
+                            <button
+                              type="button"
+                              className="btn btn-ghost flex-1"
+                              onClick={reset}
+                            >
+                              Play Again
+                            </button>
+                            <Link href="/" className="btn btn-gold flex-1">
+                              Back Home
+                            </Link>
                           </div>
                         </>
                       )}
@@ -1162,9 +1512,15 @@ export default function DemoGame() {
                       <li key={e.id} className={`feed-item ${e.word ? "" : "reject"}`}>
                         <span className="feed-head">
                           {e.word ? (
-                            <><strong>{e.word}</strong> ✓ validated · conf {e.conf.toFixed(2)}</>
+                            <>
+                              <strong>{e.word}</strong> ✓ validated · conf{" "}
+                              {e.conf.toFixed(2)}
+                            </>
                           ) : (
-                            <>heard &ldquo;{e.heard}&rdquo; — no match · conf {e.conf.toFixed(2)}</>
+                            <>
+                              heard &ldquo;{e.heard}&rdquo; — no match · conf{" "}
+                              {e.conf.toFixed(2)}
+                            </>
                           )}
                         </span>
                         <span className="quote">{e.snippet}</span>
@@ -1174,7 +1530,8 @@ export default function DemoGame() {
                       <li className="feed-item">
                         <span className="feed-head">Oracle warming up…</span>
                         <span className="quote">
-                          Whisper is transcribing the venue audio. Verdicts land here and commit on-chain in real time.
+                          Whisper is transcribing the venue audio. Verdicts land here
+                          and commit on-chain in real time.
                         </span>
                       </li>
                     )}
@@ -1187,7 +1544,9 @@ export default function DemoGame() {
       </main>
 
       {banner && (
-        <div className="bingo-banner" role="status">✦ BINGO — {banner}</div>
+        <div className="bingo-banner" role="status">
+          ✦ BINGO — {banner}
+        </div>
       )}
     </div>
   );
