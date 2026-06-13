@@ -2,6 +2,8 @@
 
 **This document lets any Mind (or human) equip and operate the Bingocle Capability with zero prior context.** It is self-contained: read it top to bottom and you can run a full game.
 
+> **Just equipped Bingocle?** (1) Open Telegram **[@Bingocle_teleBot](https://t.me/Bingocle_teleBot)** and send `/start`. (2) Send `/wallet` to see your embedded testnet wallet. (3) Send `/create <theme>` to start an event. You can also just describe what you want in plain language ("show my wallet", "buy 2 shares of airdrop in event 1") — it maps to the right command. Testnet MNT only; no real funds.
+
 ---
 
 ## 1. What this Capability is

@@ -13,7 +13,7 @@
     "telegram": "Open the Bingocle bot and send /start (or just say what you want, e.g. \"show my wallet\").",
     "email": "Email the capability address. Write commands one per line, or just describe what you want in plain English."
   },
-  "activationMessage": "🎲 Bingocle — predict the words a speaker will say live; an AI oracle calls the bingo on Mantle. You get an embedded testnet demo wallet (no seed phrase). Say \"show my wallet\" or send /start to begin.",
+  "activationMessage": "🎲 Bingocle — predict the words a speaker will say live; an AI oracle calls the bingo on Mantle. You get an embedded testnet demo wallet (no seed phrase). Say \"show my wallet\" or send /start to begin. Testnet MNT only — no real funds.",
   "naturalLanguage": true,
   "track": "Consumer & Viral DApps (Animoca Minds)",
   "chain": { "name": "Mantle", "network": "Sepolia testnet", "chainId": 5003 },
