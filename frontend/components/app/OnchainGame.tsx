@@ -1,9 +1,15 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ConnectButton } from "@rainbow-me/rainbowkit";
-import { useAccount, useReadContract, useReadContracts, useWriteContract } from "wagmi";
-import { useWaitForTransactionReceipt } from "wagmi";
+import {
+  useAccount,
+  useReadContract,
+  useReadContracts,
+  useWriteContract,
+  useWaitForTransactionReceipt,
+} from "wagmi";
 import { readContract } from "wagmi/actions";
 import { formatEther, parseEther } from "viem";
 import { wagmiConfig } from "@/lib/wagmi";
@@ -18,158 +24,53 @@ import {
   wordPoolAbi,
   type EventRecord,
 } from "@/lib/contracts";
+import { PriceChart, type PricePoint } from "./PriceChart";
 
-const FREE = 255;
+// ── types ──
+type UiPhase = "event" | "words" | "curate" | "market" | "live" | "settled";
 
-type PanelMode = "buy" | "sell";
+const PHASE_STEPS: { key: UiPhase; label: string }[] = [
+  { key: "event", label: "Event" },
+  { key: "words", label: "Submit" },
+  { key: "curate", label: "Curate" },
+  { key: "market", label: "Trade" },
+  { key: "live", label: "Live" },
+  { key: "settled", label: "Claim" },
+];
 
-interface PositionPanelProps {
-  word: string;
-  mode: PanelMode;
-  onModeChange: (m: PanelMode) => void;
-  shares: string;
-  onSharesChange: (v: string) => void;
-  price: bigint | undefined;
-  myShares: bigint | undefined;
-  prob: number;
-  mult: number;
-  busy: string | null;
-  tradingOpen: boolean;
-  isConnected: boolean;
-  onBuy: () => void;
-  onSell: () => void;
-  onClose: () => void;
+function contractToUi(phase: string): UiPhase {
+  switch (phase) {
+    case "Submission": return "words";
+    case "Founder":    return "curate";
+    case "Market":     return "market";
+    case "Live":       return "live";
+    case "Dispute":
+    case "Settled":    return "settled";
+    default:           return "event";
+  }
 }
 
-function PositionPanel({
-  word, mode, onModeChange, shares, onSharesChange,
-  price, myShares, prob, mult,
-  busy, tradingOpen, isConnected, onBuy, onSell, onClose,
-}: PositionPanelProps) {
-  const priceEth = price ? +formatEther(price) : 0;
-  const sharesNum = parseFloat(shares) || 0;
-  const totalCost = priceEth * sharesNum;
-  const hasPosition = myShares && myShares > BigInt(0);
-  const mySharesNum = myShares ? +formatEther(myShares) : 0;
-  const myValue = mySharesNum * priceEth;
-
-  return (
-    <div className="mx-4 mb-3 rounded-lg border border-[#d9a44159] bg-[#1a1410] p-4 text-sm">
-      <div className="mb-3 flex items-center justify-between">
-        <span className="font-semibold text-[#e8c66b]">{word}</span>
-        <button onClick={onClose} className="text-xs opacity-40 hover:opacity-80">✕</button>
-      </div>
-
-      {/* Buy / Sell toggle */}
-      <div className="mb-4 flex rounded-lg overflow-hidden border border-[#d9a44126]">
-        <button
-          onClick={() => onModeChange("buy")}
-          className={`flex-1 py-2 text-xs font-bold transition ${
-            mode === "buy"
-              ? "bg-[#1a4d3f] text-[#4ecca3]"
-              : "bg-[#16120d] text-[#f5e6c8] opacity-40 hover:opacity-70"
-          }`}
-        >
-          Buy
-        </button>
-        <button
-          onClick={() => onModeChange("sell")}
-          disabled={!hasPosition}
-          className={`flex-1 py-2 text-xs font-bold transition ${
-            mode === "sell"
-              ? "bg-[#3d1f10] text-[#e07a4a]"
-              : "bg-[#16120d] text-[#f5e6c8] opacity-40 hover:opacity-70"
-          } disabled:opacity-20`}
-        >
-          Sell
-        </button>
-      </div>
-
-      {/* shares input */}
-      <div className="mb-3 flex items-center gap-3">
-        <label className="shrink-0 text-xs opacity-60">Shares</label>
-        <input
-          type="number"
-          min={1}
-          step="1"
-          value={shares}
-          onChange={(e) => onSharesChange(e.target.value)}
-          className="w-full rounded border border-[#d9a44159] bg-[#16120d] px-3 py-2 text-sm text-center"
-        />
-      </div>
-
-      {/* stats grid */}
-      <div className="mb-4 grid grid-cols-2 gap-2 text-xs">
-        <div className="rounded bg-[#16120d] p-2.5">
-          <div className="mb-0.5 opacity-50">Spot price</div>
-          <div className="font-semibold">{priceEth > 0 ? `${priceEth.toFixed(5)} MNT/sh` : "—"}</div>
-        </div>
-        <div className="rounded bg-[#16120d] p-2.5">
-          <div className="mb-0.5 opacity-50">{mode === "buy" ? "Est. cost" : "Est. refund"}</div>
-          <div className="font-semibold">{totalCost > 0 ? `~${totalCost.toFixed(4)} MNT` : "—"}</div>
-        </div>
-        {mult > 0 && (
-          <div className="rounded bg-[#16120d] p-2.5">
-            <div className="mb-0.5 opacity-50">Payout mult</div>
-            <div className="font-semibold text-[#e8c66b]">{(mult / 10000).toFixed(2)}×</div>
-          </div>
-        )}
-        {hasPosition && (
-          <div className="rounded bg-[#16120d] p-2.5">
-            <div className="mb-0.5 opacity-50">Your position</div>
-            <div className="font-semibold text-teal-300">
-              {mySharesNum.toFixed(2)} sh · ~{myValue.toFixed(4)} MNT
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* action button */}
-      {mode === "buy" ? (
-        <button
-          disabled={!isConnected || !tradingOpen || !!busy || sharesNum <= 0}
-          onClick={onBuy}
-          className="w-full rounded py-3 text-sm font-bold bg-[#1a4d3f] text-[#4ecca3] border border-[#2f7d6b] hover:bg-[#2f7d6b] hover:text-white disabled:opacity-30 transition"
-        >
-          {busy === "buy" ? "⏳ confirming…" : `Buy ${sharesNum} shares`}
-        </button>
-      ) : (
-        <button
-          disabled={!isConnected || !tradingOpen || !!busy || !hasPosition || sharesNum <= 0}
-          onClick={onSell}
-          className="w-full rounded py-3 text-sm font-bold bg-[#3d1f10] text-[#e07a4a] border border-[#7d4a2f] hover:bg-[#7d4a2f] hover:text-white disabled:opacity-30 transition"
-        >
-          {busy === "sell" ? "⏳ confirming…" : `Sell ${sharesNum} shares`}
-        </button>
-      )}
-
-      {!tradingOpen && (
-        <p className="mt-2 text-center text-xs opacity-40">Trading opens in Founder &amp; Market phases.</p>
-      )}
-      {!isConnected && (
-        <p className="mt-2 text-center text-xs opacity-40">Connect wallet to trade.</p>
-      )}
-    </div>
-  );
-}
+const fmt = (n: number, d = 4) => Number(n.toFixed(d)).toString();
+const FREE_IDX = 255;
 
 export default function OnchainGame() {
   const { address, isConnected } = useAccount();
   const [eventId, setEventId] = useState(1);
   const [record, setRecord] = useState<EventRecord | null>(null);
-  const [shares, setShares] = useState("10");
+  const [wordInput, setWordInput] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [submitMsg, setSubmitMsg] = useState<string | null>(null);
+  const [selectedWord, setSelectedWord] = useState<number | null>(null);
+  const [buyAmount, setBuyAmount] = useState("0.01");
   const [busy, setBusy] = useState<string | null>(null);
   const [txHash, setTxHash] = useState<`0x${string}` | undefined>();
-  const [activeWord, setActiveWord] = useState<number | null>(null);
-  const [panelMode, setPanelMode] = useState<PanelMode>("buy");
+  const [priceHistory, setPriceHistory] = useState<Record<number, PricePoint[]>>({});
+  const pricesRef = useRef<Record<number, number>>({});
 
   const { isLoading: txPending } = useWaitForTransactionReceipt({ hash: txHash });
   const { writeContractAsync } = useWriteContract();
 
-  useEffect(() => {
-    fetchEventRecord(eventId).then(setRecord);
-  }, [eventId, txPending]);
-
+  // ── contract reads ──
   const { data: meta, refetch: refetchMeta } = useReadContracts({
     contracts: [
       { address: addresses.eventFactory, abi: eventFactoryAbi, functionName: "phaseOf", args: [BigInt(eventId)] },
@@ -177,56 +78,52 @@ export default function OnchainGame() {
       { address: addresses.wordPool, abi: wordPoolAbi, functionName: "isCommitted", args: [BigInt(eventId)] },
     ],
   });
-  const phase = meta?.[0]?.result !== undefined ? PHASES[Number(meta[0].result)] : "…";
+  const contractPhase = meta?.[0]?.result !== undefined ? PHASES[Number(meta[0].result)] : "None";
   const wordCount = meta?.[1]?.result ? Number(meta[1].result) : record?.words.length ?? 0;
   const committed = Boolean(meta?.[2]?.result);
+  const uiPhase = contractToUi(contractPhase);
+  const phaseIdx = PHASE_STEPS.findIndex((p) => p.key === uiPhase);
 
   const priceCalls = useMemo(
-    () =>
-      Array.from({ length: wordCount }, (_, w) => ({
-        address: addresses.wordMarket,
-        abi: wordMarketAbi,
-        functionName: "spotPrice" as const,
-        args: [BigInt(eventId), BigInt(w)] as const,
-      })),
-    [wordCount, eventId],
+    () => Array.from({ length: wordCount }, (_, w) => ({
+      address: addresses.wordMarket,
+      abi: wordMarketAbi,
+      functionName: "spotPrice" as const,
+      args: [BigInt(eventId), BigInt(w)] as const,
+    })),
+    [wordCount, eventId]
   );
   const shareCalls = useMemo(
-    () =>
-      address
-        ? Array.from({ length: wordCount }, (_, w) => ({
-            address: addresses.wordMarket,
-            abi: wordMarketAbi,
-            functionName: "sharesOf" as const,
-            args: [BigInt(eventId), BigInt(w), address] as const,
-          }))
-        : [],
-    [wordCount, eventId, address],
+    () => address
+      ? Array.from({ length: wordCount }, (_, w) => ({
+          address: addresses.wordMarket,
+          abi: wordMarketAbi,
+          functionName: "sharesOf" as const,
+          args: [BigInt(eventId), BigInt(w), address] as const,
+        }))
+      : [],
+    [wordCount, eventId, address]
   );
-  const { data: prices, refetch: refetchPrices } = useReadContracts({ contracts: priceCalls });
+  const { data: spotPrices, refetch: refetchPrices } = useReadContracts({ contracts: priceCalls });
   const { data: myShares, refetch: refetchShares } = useReadContracts({ contracts: shareCalls });
 
-  const { data: card, refetch: refetchCard } = useReadContracts({
-    contracts: address
-      ? [
-          { address: addresses.bingoCardNFT, abi: bingoCardAbi, functionName: "hasCard", args: [BigInt(eventId), address] },
-          { address: addresses.bingoCardNFT, abi: bingoCardAbi, functionName: "cardOf", args: [BigInt(eventId), address] },
-        ]
-      : [],
+  const { data: cardData, refetch: refetchCard } = useReadContracts({
+    contracts: address ? [
+      { address: addresses.bingoCardNFT, abi: bingoCardAbi, functionName: "hasCard", args: [BigInt(eventId), address] },
+      { address: addresses.bingoCardNFT, abi: bingoCardAbi, functionName: "cardOf", args: [BigInt(eventId), address] },
+    ] : [],
   });
-  const hasCard = Boolean(card?.[0]?.result);
-  const tokenId = card?.[1]?.result as bigint | undefined;
+  const hasCard = Boolean(cardData?.[0]?.result);
+  const tokenId = cardData?.[1]?.result as bigint | undefined;
+
   const { data: cardView, refetch: refetchCardView } = useReadContracts({
-    contracts:
-      hasCard && tokenId
-        ? [
-            { address: addresses.bingoCardNFT, abi: bingoCardAbi, functionName: "cardCells", args: [tokenId] },
-            { address: addresses.bingoCardNFT, abi: bingoCardAbi, functionName: "markedMask", args: [tokenId] },
-          ]
-        : [],
+    contracts: hasCard && tokenId ? [
+      { address: addresses.bingoCardNFT, abi: bingoCardAbi, functionName: "cardCells", args: [tokenId] },
+      { address: addresses.bingoCardNFT, abi: bingoCardAbi, functionName: "markedMask", args: [tokenId] },
+    ] : [],
   });
   const cells = cardView?.[0]?.result as readonly number[] | undefined;
-  const marked = cardView?.[1]?.result ? Number(cardView[1].result) : 0;
+  const markedMask = cardView?.[1]?.result ? Number(cardView[1].result) : 0;
 
   const { data: redeemable } = useReadContract({
     address: addresses.wordMarket,
@@ -236,6 +133,28 @@ export default function OnchainGame() {
     query: { enabled: Boolean(address) },
   });
 
+  // ── fetch agent record ──
+  useEffect(() => {
+    fetchEventRecord(eventId).then(setRecord);
+  }, [eventId, txPending]);
+
+  // ── accumulate price history ──
+  useEffect(() => {
+    if (!spotPrices) return;
+    const now = Date.now();
+    setPriceHistory((prev) => {
+      const next = { ...prev };
+      spotPrices.forEach((r, w) => {
+        if (r.result === undefined) return;
+        const price = +formatEther(r.result as bigint);
+        pricesRef.current[w] = price;
+        next[w] = [...(next[w] ?? []).slice(-49), { time: now, price }];
+      });
+      return next;
+    });
+  }, [spotPrices]);
+
+  // ── helpers ──
   function refetchAll() {
     refetchMeta();
     refetchPrices();
@@ -258,292 +177,612 @@ export default function OnchainGame() {
     }
   }
 
-  const tradingOpen = phase === "Founder" || phase === "Market";
-  const sharesWei = (() => {
+  async function submitWordToAgent() {
+    if (!wordInput.trim() || !address) return;
+    setSubmitting(true);
+    setSubmitMsg(null);
     try {
-      return parseEther(shares || "0");
+      const { AGENT_API } = await import("@/lib/contracts");
+      const res = await fetch(`${AGENT_API}/events/${eventId}/submit`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ word: wordInput.trim(), player: address }),
+      });
+      if (res.ok) {
+        setSubmitMsg(`"${wordInput.trim()}" submitted ✓`);
+        setWordInput("");
+        setTimeout(() => refetchAll(), 2000);
+      } else {
+        const err = await res.json().catch(() => ({}));
+        setSubmitMsg(err?.reason ?? "submission rejected");
+      }
     } catch {
-      return BigInt(0);
+      setSubmitMsg("network error — try again");
+    } finally {
+      setSubmitting(false);
     }
+  }
+
+  const sharesWei = (() => {
+    try { return parseEther(buyAmount || "0"); } catch { return BigInt(0); }
   })();
 
-  const buy = (w: number) =>
-    run("buy", async () => {
-      const cost = await readQuote("quoteBuy", w, sharesWei);
-      return writeContractAsync({
-        address: addresses.wordMarket,
-        abi: wordMarketAbi,
-        functionName: "buy",
-        args: [BigInt(eventId), BigInt(w), sharesWei, cost],
-        value: cost,
-      });
+  async function buy(w: number) {
+    const cost = await readContract(wagmiConfig, {
+      address: addresses.wordMarket, abi: wordMarketAbi,
+      functionName: "quoteBuy", args: [BigInt(eventId), BigInt(w), sharesWei],
     });
+    return run("buy", () => writeContractAsync({
+      address: addresses.wordMarket, abi: wordMarketAbi,
+      functionName: "buy", args: [BigInt(eventId), BigInt(w), sharesWei, cost as bigint],
+      value: cost as bigint,
+    }));
+  }
 
-  const sell = (w: number) =>
-    run("sell", async () =>
-      writeContractAsync({
-        address: addresses.wordMarket,
-        abi: wordMarketAbi,
-        functionName: "sell",
-        args: [BigInt(eventId), BigInt(w), sharesWei, BigInt(0)],
-      }),
-    );
+  async function sell(w: number, amount: bigint) {
+    return run("sell", () => writeContractAsync({
+      address: addresses.wordMarket, abi: wordMarketAbi,
+      functionName: "sell", args: [BigInt(eventId), BigInt(w), amount, BigInt(0)],
+    }));
+  }
 
-  const mint = () =>
-    run("mint", async () =>
-      writeContractAsync({ address: addresses.bingoCardNFT, abi: bingoCardAbi, functionName: "mint", args: [BigInt(eventId)] }),
-    );
+  function mintCard() {
+    return run("mint", () => writeContractAsync({
+      address: addresses.bingoCardNFT, abi: bingoCardAbi,
+      functionName: "mint", args: [BigInt(eventId)],
+    }));
+  }
 
-  const claim = () =>
-    run("claim", async () => {
+  async function claim() {
+    return run("claim", async () => {
       await writeContractAsync({ address: addresses.wordMarket, abi: wordMarketAbi, functionName: "redeem", args: [BigInt(eventId)] }).catch(() => {});
       return writeContractAsync({ address: addresses.rewardVault, abi: rewardVaultAbi, functionName: "claim", args: [BigInt(eventId)] });
     });
-
-  async function readQuote(fn: "quoteBuy" | "quoteSell", word: number, amount: bigint): Promise<bigint> {
-    return readContract(wagmiConfig, {
-      address: addresses.wordMarket,
-      abi: wordMarketAbi,
-      functionName: fn,
-      args: [BigInt(eventId), BigInt(word), amount],
-    });
   }
 
-  const label = (w: number) => record?.words[w] ?? `#${w}`;
-
-  // Probability that this word is said (0–100). From agent aiProb, else 50.
-  const prob = (w: number): number => {
+  const wordLabel = (w: number) => record?.words[w] ?? `#${w}`;
+  const wordProb = (w: number) => {
     const p = record?.odds[w]?.aiProb;
     return p !== undefined ? Math.round(p * 100) : 50;
   };
-  const mult = (w: number): number => record?.odds[w]?.mult1e4 ?? 0;
+  const wordMult = (w: number) => {
+    const m = record?.odds[w]?.mult1e4;
+    return m ? (m / 10000).toFixed(2) : "—";
+  };
+  const spotEth = (w: number) => {
+    const r = spotPrices?.[w]?.result;
+    return r ? +formatEther(r as bigint) : 0;
+  };
+  const mySharesNum = (w: number) => {
+    const r = myShares?.[w]?.result;
+    return r ? +formatEther(r as bigint) : 0;
+  };
+  const isMarked = (idx: number) => Boolean(markedMask & (1 << idx));
 
-  function openPanel(w: number, mode: PanelMode = "buy") {
-    if (activeWord === w && panelMode === mode) {
-      setActiveWord(null);
-    } else {
-      setActiveWord(w);
-      setPanelMode(mode);
-    }
-  }
-
+  // ── render ──
   return (
-    <div className="mx-auto max-w-3xl px-4 py-8 text-[#f5e6c8]">
-      {/* header */}
-      <div className="mb-6 flex items-center justify-between gap-4">
-        <h1 className="font-serif text-2xl text-[#e8c66b]">Bingocle — Live Market</h1>
-        <ConnectButton />
-      </div>
+    <div className="app-bg">
+      <header className="topbar">
+        <div className="mx-auto flex h-11 max-w-6xl items-center justify-between gap-4 px-4">
+          <Link href="/" className="wordmark text-lg">Bingocle</Link>
+          <nav aria-label="Game phase" className="hidden items-center gap-1.5 lg:flex">
+            {PHASE_STEPS.map((p, i) => (
+              <span key={p.key} className={`phase-step ${i === phaseIdx ? "active" : ""} ${i < phaseIdx ? "done" : ""}`}>
+                <span className="p-rune">{i < phaseIdx ? "✓" : i + 1}</span>
+                {p.label}
+              </span>
+            ))}
+          </nav>
+          <ConnectButton />
+        </div>
+      </header>
 
-      {/* event selector + status bar */}
-      <div className="mb-6 flex flex-wrap items-center gap-3 text-sm">
-        <label className="opacity-80">Event</label>
-        <input
-          type="number"
-          min={1}
-          value={eventId}
-          onChange={(e) => { setEventId(Math.max(1, Number(e.target.value))); setActiveWord(null); }}
-          className="w-20 rounded border border-[#d9a44159] bg-[#1a1410] px-2 py-1"
-        />
-        <span className="rounded bg-[#2a2118] px-2 py-1">
-          Phase: <b className="text-[#e8c66b]">{phase}</b>
-        </span>
-        {record && <span className="opacity-70">{record.theme}</span>}
-        {!committed && <span className="text-amber-400">pool not committed yet</span>}
-        {(busy || txPending) && <span className="text-teal-300">⏳ {busy ?? "confirming"}…</span>}
-      </div>
-
-      {/* ── Word Market (Polymarket-style) ── */}
-      <div className="rounded-lg border border-[#d9a44126] bg-[#16120d] overflow-hidden">
-        {/* column header */}
-        <div className="grid grid-cols-[1fr_110px_100px_auto] items-center gap-x-3 border-b border-[#d9a44126] px-4 py-2.5 text-xs font-semibold opacity-50">
-          <span>Word</span>
-          <span>Probability</span>
-          <span>Price / share</span>
-          <span>Position</span>
+      <main className="mx-auto max-w-6xl px-4 pb-24 pt-8 sm:px-6">
+        <div className="mb-4 flex items-center justify-center gap-3">
+          <p className="kicker">On-chain · Mantle Sepolia · Event</p>
+          <input
+            type="number" min={1} value={eventId}
+            onChange={(e) => { setEventId(Math.max(1, Number(e.target.value))); setSelectedWord(null); }}
+            className="input-dark w-16 text-center text-sm py-1"
+          />
+          <span className="kicker rounded bg-black/30 px-2 py-1">
+            {contractPhase}
+          </span>
         </div>
 
-        {/* rows */}
-        {Array.from({ length: wordCount }, (_, w) => {
-          const price = prices?.[w]?.result as bigint | undefined;
-          const sh = myShares?.[w]?.result as bigint | undefined;
-          const hasPosition = sh && sh > BigInt(0);
-          const p = prob(w);
-          const isActive = activeWord === w;
+        {!isConnected && (
+          <div className="mx-auto max-w-md ornate-frame p-8 text-center mb-8">
+            <p className="h-display text-2xl mb-2">Connect your wallet</p>
+            <p className="body-copy text-base mb-6">
+              You need a wallet on Mantle Sepolia to participate on-chain. Switch to demo mode to explore without a wallet.
+            </p>
+            <ConnectButton />
+            <div className="mt-4">
+              <Link href="/play" className="text-xs text-cream/40 hover:text-cream/70 underline transition">
+                ← Back to demo
+              </Link>
+            </div>
+          </div>
+        )}
 
-          return (
-            <div key={w} className="border-b border-[#d9a44126] last:border-0">
-              {/* main row */}
-              <div
-                className={`grid grid-cols-[1fr_110px_100px_auto] items-center gap-x-3 px-4 py-3 cursor-pointer transition ${
-                  isActive ? "bg-[#1e1810]" : "hover:bg-[#1a1610]"
-                }`}
-                onClick={() => openPanel(w)}
-              >
-                {/* word + position badge */}
-                <div className="flex items-center gap-2 min-w-0">
-                  <span className="font-medium truncate">{label(w)}</span>
-                  {hasPosition && (
-                    <span className="shrink-0 rounded-full bg-teal-900 px-1.5 py-0.5 text-[10px] font-semibold text-teal-300">
-                      holding
-                    </span>
-                  )}
-                </div>
+        {/* ═══ EVENT (None / default) ═══ */}
+        {isConnected && uiPhase === "event" && (
+          <div className="mx-auto max-w-xl ornate-frame p-6 sm:p-8">
+            <p className="kicker text-center mb-2">On-Chain · Mantle Sepolia</p>
+            <h1 className="h-display text-center text-3xl sm:text-4xl mb-6">
+              {record?.theme ?? "Bingocle Live"}
+            </h1>
+            <dl className="space-y-2 border-t border-gold/15 pt-5">
+              {[
+                ["Event ID", `#${eventId}`],
+                ["Phase", contractPhase],
+                ["Words in pool", String(wordCount)],
+                ["Network", "Mantle Sepolia"],
+              ].map(([k, v]) => (
+                <div key={k} className="stat-row"><dt>{k}</dt><dd>{v}</dd></div>
+              ))}
+            </dl>
+            <p className="body-copy mt-5 text-center text-sm italic">
+              Playing as{" "}
+              <span className="text-gold-bright">
+                {address?.slice(0, 6)}…{address?.slice(-4)}
+              </span>
+            </p>
+            <p className="text-xs text-cream/30 mt-3 text-center">
+              Waiting for event to enter Submission phase · refresh to check
+            </p>
+            <div className="mt-6 text-center">
+              <button type="button" className="btn btn-ghost" onClick={() => refetchAll()}>
+                Refresh
+              </button>
+            </div>
+          </div>
+        )}
 
-                {/* probability bar */}
-                <div className="flex items-center gap-2">
-                  <div className="h-1.5 flex-1 rounded-full bg-[#2a2118] overflow-hidden">
-                    <div
-                      className="h-full rounded-full bg-[#e8c66b] transition-all"
-                      style={{ width: `${p}%` }}
-                    />
-                  </div>
-                  <span className="w-8 text-right text-xs font-bold text-[#e8c66b]">{p}%</span>
-                </div>
-
-                {/* price */}
-                <div className="text-sm opacity-80">
-                  {price ? `${(+formatEther(price)).toFixed(4)} MNT` : "…"}
-                </div>
-
-                {/* position amount */}
-                <div className="text-sm">
-                  {hasPosition ? (
-                    <span className="font-semibold text-teal-300">{(+formatEther(sh)).toFixed(2)} sh</span>
-                  ) : (
-                    <span className="opacity-25">—</span>
-                  )}
-                </div>
-              </div>
-
-              {/* action buttons (always visible, collapsed to icons) */}
-              <div className="flex gap-2 border-t border-[#d9a44113] px-4 py-2">
-                <button
-                  disabled={!isConnected || !tradingOpen || !!busy}
-                  onClick={(e) => { e.stopPropagation(); openPanel(w, "buy"); }}
-                  className={`rounded px-3 py-1 text-xs font-semibold border transition ${
-                    isActive && panelMode === "buy"
-                      ? "bg-[#2f7d6b] text-white border-[#2f7d6b]"
-                      : "bg-[#1a4d3f] text-[#4ecca3] border-[#2f7d6b] hover:bg-[#2f7d6b] hover:text-white"
-                  } disabled:opacity-30`}
-                >
-                  Buy
-                </button>
-                <button
-                  disabled={!isConnected || !tradingOpen || !!busy || !hasPosition}
-                  onClick={(e) => { e.stopPropagation(); openPanel(w, "sell"); }}
-                  className={`rounded px-3 py-1 text-xs font-semibold border transition ${
-                    isActive && panelMode === "sell"
-                      ? "bg-[#7d4a2f] text-white border-[#7d4a2f]"
-                      : "bg-[#3d1f10] text-[#e07a4a] border-[#7d4a2f] hover:bg-[#7d4a2f] hover:text-white"
-                  } disabled:opacity-30`}
-                >
-                  Sell
-                </button>
-                {mult(w) > 0 && (
-                  <span className="ml-auto self-center text-xs opacity-40">
-                    {(mult(w) / 10000).toFixed(2)}× payout
-                  </span>
-                )}
-              </div>
-
-              {/* inline order panel */}
-              {isActive && (
-                <PositionPanel
-                  word={label(w)}
-                  mode={panelMode}
-                  onModeChange={setPanelMode}
-                  shares={shares}
-                  onSharesChange={setShares}
-                  price={price}
-                  myShares={sh}
-                  prob={p}
-                  mult={mult(w)}
-                  busy={busy}
-                  tradingOpen={tradingOpen}
-                  isConnected={isConnected}
-                  onBuy={() => buy(w)}
-                  onSell={() => sell(w)}
-                  onClose={() => setActiveWord(null)}
+        {/* ═══ WORDS (Submission phase) ═══ */}
+        {isConnected && uiPhase === "words" && (
+          <div className="mx-auto max-w-xl space-y-5">
+            <div className="ornate-frame p-6 sm:p-8">
+              <h1 className="h-display text-center text-3xl sm:text-4xl">
+                Submit your <span className="gold">words</span>
+              </h1>
+              <p className="body-copy mt-4 text-center text-base">
+                Predict words the speaker will say. Submitting a new word makes
+                you its <strong className="text-gold-bright">Word Founder</strong> — you receive a free seed position when the card assembles.
+              </p>
+              <div className="mt-6 flex gap-3">
+                <input
+                  className="input-dark flex-1"
+                  placeholder="e.g. Liquidity"
+                  value={wordInput}
+                  maxLength={32}
+                  disabled={submitting || committed}
+                  onChange={(e) => setWordInput(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && submitWordToAgent()}
+                  aria-label="Word to submit"
                 />
+                <button
+                  type="button"
+                  className="btn btn-gold px-5"
+                  onClick={submitWordToAgent}
+                  disabled={submitting || !wordInput.trim() || committed}
+                >
+                  {submitting ? "…" : "Submit"}
+                </button>
+              </div>
+              {submitMsg && (
+                <p className={`mt-3 text-sm ${submitMsg.includes("✓") ? "text-teal-400" : "text-amber-400"}`}>
+                  {submitMsg}
+                </p>
+              )}
+              {committed && (
+                <p className="mt-3 text-sm text-amber-400">
+                  Word pool committed — submission closed.
+                </p>
               )}
             </div>
-          );
-        })}
 
-        {!tradingOpen && wordCount > 0 && (
-          <div className="px-4 py-3 text-xs opacity-50 text-center">
-            Trading opens in Founder &amp; Market phases.
-          </div>
-        )}
-        {wordCount === 0 && (
-          <div className="px-4 py-6 text-sm opacity-50 text-center">No words committed yet.</div>
-        )}
-      </div>
-
-      {/* bingo card */}
-      <div className="mt-6 rounded-lg border border-[#d9a44126] bg-[#16120d] p-4">
-        <div className="mb-3 flex items-center justify-between">
-          <b className="text-[#e8c66b]">Your bingo card</b>
-          {isConnected && !hasCard && committed && (
-            <button
-              onClick={mint}
-              disabled={!!busy}
-              className="rounded bg-[#2f7d6b] px-3 py-1 text-sm text-white disabled:opacity-40"
-            >
-              Mint card
-            </button>
-          )}
-        </div>
-        {hasCard && cells ? (
-          <div className="grid grid-cols-5 gap-1">
-            {cells.map((c, i) => {
-              const hit = (marked >> i) & 1;
-              const text = c === FREE ? "★" : label(c).slice(0, 7);
-              return (
-                <div
-                  key={i}
-                  className={`flex aspect-square cursor-pointer items-center justify-center rounded text-center text-[10px] transition ${
-                    hit ? "bg-[#2f7d6b] text-white" : "bg-[#221a12] text-[#cdbb96] hover:bg-[#2a2118]"
-                  }`}
-                  onClick={() => c !== FREE && openPanel(c, "buy")}
-                  title={c !== FREE ? `Trade "${label(c)}"` : "FREE"}
-                >
-                  {text}
+            {/* Pool preview */}
+            {wordCount > 0 && (
+              <div className="ornate-frame p-5">
+                <p className="kicker mb-3">Current pool — {wordCount} words</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {Array.from({ length: wordCount }, (_, w) => (
+                    <span key={w} className="rounded border border-gold/20 bg-black/20 px-2 py-0.5 text-xs text-cream/70">
+                      {wordLabel(w)}
+                      <span className="ml-1 text-cream/30">{wordProb(w)}%</span>
+                    </span>
+                  ))}
                 </div>
-              );
-            })}
-          </div>
-        ) : (
-          <p className="text-sm opacity-60">
-            No card yet.{!committed && " Wait for pool to commit."}
-          </p>
-        )}
-      </div>
+              </div>
+            )}
 
-      {/* settle & claim */}
-      <div className="mt-6 rounded-lg border border-[#d9a44126] bg-[#16120d] p-4">
-        <div className="flex items-center justify-between">
-          <div>
-            <b className="text-[#e8c66b]">Settle &amp; claim</b>
-            <div className="text-xs opacity-70">
-              redeemable:{" "}
-              {redeemable ? `${(+formatEther(redeemable as bigint)).toFixed(3)} MNT` : "—"}
+            <div className="text-center">
+              <p className="text-xs text-cream/30 mb-3">
+                Waiting for organizer to close submissions and trigger AI curation.
+              </p>
+              <button type="button" className="btn btn-ghost" onClick={() => refetchAll()}>
+                Refresh Phase
+              </button>
             </div>
           </div>
-          <button
-            disabled={!isConnected || phase !== "Settled" || !!busy}
-            onClick={claim}
-            className="rounded bg-[#d9a441] px-4 py-2 text-sm font-semibold text-[#2b1a05] disabled:opacity-40"
-          >
-            Claim winnings
-          </button>
-        </div>
-      </div>
+        )}
 
-      <p className="mt-6 text-center text-xs opacity-50">
-        On-chain on Mantle · AI-powered probability · trustless settlement
-      </p>
+        {/* ═══ CURATE (Founder phase — AI assembling card) ═══ */}
+        {isConnected && uiPhase === "curate" && (
+          <div className="mx-auto max-w-2xl ornate-frame p-6 sm:p-8">
+            <p className="kicker text-center mb-2">AI Oracle is working</p>
+            <h1 className="h-display text-center text-3xl sm:text-4xl mb-6">
+              Assembling <span className="gold">Bingo Card</span>
+            </h1>
+
+            {!hasCard ? (
+              <div className="text-center space-y-4">
+                <p className="body-copy text-base">
+                  The AI has curated the word pool. Mint your personal bingo card NFT to lock in your tile layout.
+                </p>
+                <button
+                  type="button"
+                  className="btn btn-gold"
+                  onClick={mintCard}
+                  disabled={!!busy}
+                >
+                  {busy === "mint" ? "Minting…" : "Mint Bingo Card NFT"}
+                </button>
+                <p className="text-xs text-cream/30">
+                  Token ID is assigned on-chain · tile order randomised from your address
+                </p>
+              </div>
+            ) : cells ? (
+              <>
+                <p className="kicker text-center mb-4">Your card — token #{tokenId?.toString()}</p>
+                <div className="bingo-board">
+                  {(cells as number[]).map((cellWordIdx, i) => {
+                    const free = cellWordIdx === FREE_IDX;
+                    return (
+                      <div key={i} className={`bingo-tile ${free ? "free" : ""}`}>
+                        {free ? "★" : wordLabel(cellWordIdx)}
+                      </div>
+                    );
+                  })}
+                </div>
+                <div className="mt-6 text-center">
+                  <p className="body-copy text-sm italic mb-4">
+                    Market opens when the Founder phase ends.
+                  </p>
+                  <button type="button" className="btn btn-ghost" onClick={() => refetchAll()}>
+                    Refresh Phase
+                  </button>
+                </div>
+              </>
+            ) : (
+              <div className="text-center">
+                <p className="body-copy text-base animate-pulse">Loading card…</p>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ═══ MARKET (Market phase) ═══ */}
+        {isConnected && uiPhase === "market" && (
+          <div className="grid items-start gap-6 lg:grid-cols-[1.1fr_0.9fr]">
+            {/* Left: bingo card */}
+            <div className="ornate-frame">
+              <div className="frame-screen board-scene px-2 pb-4 pt-4 sm:px-4 sm:pb-5">
+                <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                  <span className="hud-plate">
+                    <span className="dot gold" />
+                    {address?.slice(0, 6)}…{address?.slice(-4)}
+                  </span>
+                  <span className="hud-plate">
+                    <span className="dot gold" />
+                    Market Open · Trade to Win
+                  </span>
+                </div>
+                {cells ? (
+                  <div className="bingo-board">
+                    {(cells as number[]).map((cellWordIdx, i) => {
+                      const free = cellWordIdx === FREE_IDX;
+                      const hasPos = mySharesNum(cellWordIdx) > 0;
+                      return (
+                        <button
+                          key={i}
+                          type="button"
+                          className={`bingo-tile ${free ? "free" : ""} ${selectedWord === cellWordIdx ? "sel" : ""}`}
+                          onClick={() => !free && setSelectedWord(cellWordIdx)}
+                          disabled={free}
+                        >
+                          {free ? "★" : wordLabel(cellWordIdx)}
+                          {hasPos && !free && (
+                            <span className="owned-chip">{fmt(mySharesNum(cellWordIdx), 2)}</span>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="text-center py-8">
+                    <p className="body-copy text-base mb-4">No card yet — mint one first.</p>
+                    <button type="button" className="btn btn-gold" onClick={mintCard} disabled={!!busy}>
+                      {busy === "mint" ? "Minting…" : "Mint Card"}
+                    </button>
+                  </div>
+                )}
+                <p className="kicker mt-3 text-center">Tap a tile to trade</p>
+              </div>
+            </div>
+
+            {/* Right: market panel */}
+            <div className="game-panel">
+              <div className="flex items-center justify-between gap-2 mb-3">
+                <h2 className="step-title text-sm">Word Market — Live Prices</h2>
+              </div>
+
+              {selectedWord !== null ? (
+                <div>
+                  <button
+                    type="button"
+                    className="text-xs text-cream/30 hover:text-cream/60 underline block mb-3"
+                    onClick={() => setSelectedWord(null)}
+                  >
+                    ← All words
+                  </button>
+                  <div className="flex items-baseline justify-between mb-2">
+                    <span className="h-display text-2xl">{wordLabel(selectedWord)}</span>
+                  </div>
+                  <div className="mb-4 rounded-lg border border-gold/10 bg-black/20 p-2">
+                    <PriceChart
+                      history={(priceHistory[selectedWord] ?? []).slice(-30)}
+                      height={120}
+                      compact={false}
+                    />
+                  </div>
+                  <div className="space-y-2 mb-4">
+                    {[
+                      ["Price", `${fmt(spotEth(selectedWord))} MNT/sh`],
+                      ["AI probability", `${wordProb(selectedWord)}%`],
+                      ["Multiplier", `${wordMult(selectedWord)}×`],
+                      ["Your shares", `${fmt(mySharesNum(selectedWord), 4)} sh`],
+                    ].map(([k, v]) => (
+                      <div key={k} className="stat-row"><dt>{k}</dt><dd>{v}</dd></div>
+                    ))}
+                  </div>
+                  <div className="flex gap-2 items-center mb-3">
+                    <label className="kicker text-[10px]">Amount (MNT)</label>
+                    <input
+                      type="number" step="0.001" min="0.001"
+                      className="input-dark flex-1 text-sm text-center py-1"
+                      value={buyAmount}
+                      onChange={(e) => setBuyAmount(e.target.value)}
+                    />
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button" className="btn btn-mini-gold"
+                      onClick={() => buy(selectedWord)}
+                      disabled={!!busy || !isConnected}
+                    >
+                      {busy === "buy" ? "…" : "Buy"}
+                    </button>
+                    {mySharesNum(selectedWord) > 0 && (
+                      <button
+                        type="button" className="btn btn-blood"
+                        style={{ fontSize: "0.62rem" }}
+                        onClick={() => {
+                          const r = myShares?.[selectedWord]?.result;
+                          if (r) sell(selectedWord, r as bigint);
+                        }}
+                        disabled={!!busy || !isConnected}
+                      >
+                        {busy === "sell" ? "…" : "Sell All"}
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                <div>
+                  <p className="body-copy text-sm mb-3">
+                    Prices move via bonding curve. Buy words you predict the speaker will say.
+                  </p>
+                  <div className="space-y-1.5 overflow-y-auto pr-1" style={{ maxHeight: 340 }}>
+                    {Array.from({ length: wordCount }, (_, w) => {
+                      const cur = spotEth(w);
+                      const hist = priceHistory[w] ?? [];
+                      const startP = hist[0]?.price ?? cur;
+                      const pct = startP > 0 ? ((cur - startP) / startP) * 100 : 0;
+                      const isUp = cur >= startP;
+                      return (
+                        <button
+                          key={w}
+                          type="button"
+                          onClick={() => setSelectedWord(w)}
+                          className="w-full rounded-lg border border-gold/10 bg-black/20 px-3 py-2 hover:border-gold/35 transition text-left"
+                        >
+                          <div className="flex items-center justify-between mb-1">
+                            <span className="text-xs font-bold text-cream truncate">{wordLabel(w)}</span>
+                            <div className="text-right shrink-0 ml-2">
+                              <span className="text-xs font-bold" style={{ color: isUp ? "#2be3d4" : "#e07a4a" }}>
+                                {fmt(cur)} MNT
+                              </span>
+                              <span className="text-[9px] ml-1" style={{ color: isUp ? "#2be3d4" : "#e07a4a" }}>
+                                {isUp ? "+" : ""}{pct.toFixed(1)}%
+                              </span>
+                            </div>
+                          </div>
+                          <PriceChart history={hist.slice(-20)} height={28} compact />
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              <div className="mt-5 border-t border-gold/15 pt-4 space-y-1.5">
+                <div className="stat-row"><dt>Redeemable</dt><dd>{redeemable ? `${fmt(+formatEther(redeemable as bigint))} MNT` : "—"}</dd></div>
+              </div>
+              <p className="text-xs text-cream/30 mt-3 text-center">
+                Organizer locks the market when the event starts.
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* ═══ LIVE (Live phase) ═══ */}
+        {isConnected && uiPhase === "live" && (
+          <div className="grid items-start gap-6 lg:grid-cols-[1.1fr_0.9fr]">
+            {/* Left: card */}
+            <div className="ornate-frame">
+              <div className="frame-screen board-scene px-2 pb-4 pt-4 sm:px-4 sm:pb-5">
+                <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                  <span className="hud-plate">
+                    <span className="dot gold" />
+                    {address?.slice(0, 6)}…{address?.slice(-4)}
+                  </span>
+                  <span className="hud-plate">
+                    <span className="dot live" />
+                    Oracle · Listening
+                  </span>
+                </div>
+                {cells ? (
+                  <div className="bingo-board">
+                    {(cells as number[]).map((cellWordIdx, i) => {
+                      const free = cellWordIdx === FREE_IDX;
+                      const hit = !free && isMarked(i);
+                      return (
+                        <div key={i} className={`bingo-tile ${free ? "free" : ""} ${hit ? "hit" : ""}`}>
+                          {free ? "★" : wordLabel(cellWordIdx)}
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="text-center py-8">
+                    <p className="body-copy text-base mb-4">No card — you can still watch.</p>
+                  </div>
+                )}
+                <p className="kicker mt-3 text-center">Tiles light up as oracle validates words</p>
+              </div>
+            </div>
+
+            {/* Right: oracle panel */}
+            <div className="game-panel">
+              <div className="flex items-center justify-between gap-2 mb-4">
+                <h2 className="step-title text-sm">AI Oracle — Live</h2>
+                <button type="button" className="btn btn-ghost py-1 text-xs" onClick={() => refetchAll()}>
+                  Refresh
+                </button>
+              </div>
+              <div
+                className="rounded-lg border px-4 py-3 mb-4"
+                style={{ borderColor: "rgba(43,227,212,0.2)", background: "rgba(0,30,27,0.3)" }}
+              >
+                <p className="step-title text-xs mb-2" style={{ color: "#2be3d4" }}>Oracle Status</p>
+                <p className="body-copy text-sm">
+                  Whisper STT is transcribing the event audio. Oracle verdicts are written on-chain by the AI agent identity.
+                  Validated words mark your card automatically.
+                </p>
+              </div>
+              {cells && (
+                <div>
+                  <p className="kicker mb-2">Validated so far</p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {(cells as number[]).map((cellWordIdx, i) => {
+                      if (cellWordIdx === FREE_IDX) return null;
+                      const hit = isMarked(i);
+                      if (!hit) return null;
+                      return (
+                        <span key={i} className="rounded border border-teal-700/50 bg-teal-950/30 px-2 py-0.5 text-xs text-teal-300">
+                          {wordLabel(cellWordIdx)} ✓
+                        </span>
+                      );
+                    })}
+                    {!cells.some((_, i) => isMarked(i)) && (
+                      <p className="text-xs text-cream/30 animate-pulse">Waiting for first oracle validation…</p>
+                    )}
+                  </div>
+                </div>
+              )}
+              <p className="text-xs text-cream/30 mt-6">
+                Event ends when the organizer closes it on-chain. Dispute period follows.
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* ═══ SETTLED (Dispute / Settled phase) ═══ */}
+        {isConnected && uiPhase === "settled" && (
+          <div className="mx-auto max-w-xl space-y-5">
+            <div className="ornate-frame p-6 sm:p-8">
+              <p className="kicker text-center mb-2">
+                {contractPhase === "Dispute" ? "Dispute Period" : "Event Settled"}
+              </p>
+              <h1 className="h-display text-center text-3xl sm:text-4xl mb-6">
+                Claim <span className="gold">Rewards</span>
+              </h1>
+
+              {cells && (
+                <div className="mb-6">
+                  <p className="kicker mb-3">Final Card</p>
+                  <div className="bingo-board">
+                    {(cells as number[]).map((cellWordIdx, i) => {
+                      const free = cellWordIdx === FREE_IDX;
+                      const hit = !free && isMarked(i);
+                      return (
+                        <div key={i} className={`bingo-tile ${free ? "free" : ""} ${hit ? "hit" : ""}`}>
+                          {free ? "★" : wordLabel(cellWordIdx)}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              <div className="space-y-2 mb-6">
+                <div className="stat-row">
+                  <dt>Redeemable from word stakes</dt>
+                  <dd className="text-teal-glow">
+                    {redeemable ? `${fmt(+formatEther(redeemable as bigint))} MNT` : "—"}
+                  </dd>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                className="btn btn-gold w-full"
+                onClick={claim}
+                disabled={!!busy || contractPhase === "Dispute"}
+              >
+                {busy === "claim" ? "Claiming…" : contractPhase === "Dispute" ? "Dispute period — wait to claim" : "Claim Rewards"}
+              </button>
+
+              {contractPhase === "Dispute" && (
+                <p className="text-xs text-amber-400/70 mt-3 text-center">
+                  Dispute period active. Claims open after it ends.
+                </p>
+              )}
+
+              <div
+                className="mt-5 rounded-lg border px-4 py-3"
+                style={{ borderColor: "rgba(217,164,65,0.2)", background: "rgba(0,0,0,0.3)" }}
+              >
+                <p className="step-title text-xs mb-2" style={{ color: "#e8c66b" }}>✦ Trustless by Design</p>
+                <p className="step-desc text-xs leading-relaxed mb-2">
+                  Oracle verdicts are committed on-chain — no admin override possible after event start.
+                  Stakes on unspoken words are forfeited into the prize pool and paid out to correct predictors.
+                </p>
+                <p className="step-desc text-xs leading-relaxed">
+                  <strong style={{ color: "#cdbb96" }}>AI risk:</strong>{" "}
+                  Whisper may miss words in poor audio. Resolution sources are agreed on-chain before any stake is placed.
+                </p>
+              </div>
+            </div>
+
+            <div className="text-center">
+              <Link href="/" className="btn btn-ghost">← Back Home</Link>
+            </div>
+          </div>
+        )}
+      </main>
     </div>
   );
 }

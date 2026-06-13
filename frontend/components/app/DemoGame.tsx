@@ -27,6 +27,7 @@ import {
   USER_WORD_INFO,
   type OracleEvent,
 } from "./data";
+import { PriceChart, type PricePoint } from "./PriceChart";
 
 type Phase = "event" | "words" | "curate" | "market" | "live" | "settled";
 
@@ -51,117 +52,6 @@ type IpoResult = IpoBid & {
   priceOk: boolean;
   allocated: boolean;
 };
-
-type PricePoint = { time: number; price: number };
-
-// ── PriceChart component ──
-function PriceChart({
-  history,
-  height = 80,
-  compact = false,
-}: {
-  history: PricePoint[];
-  height?: number;
-  compact?: boolean;
-}) {
-  if (history.length < 2) {
-    return (
-      <div style={{ height }} className="flex items-center justify-center">
-        <span className="text-[9px] text-cream/20">collecting…</span>
-      </div>
-    );
-  }
-  const W = 300;
-  const H = height;
-  const vals = history.map((p) => p.price);
-  const minP = Math.min(...vals);
-  const maxP = Math.max(...vals);
-  const range = maxP - minP || 0.001;
-  const pad = compact ? 2 : 14;
-  const toX = (i: number) => ((i / (history.length - 1)) * W).toFixed(1);
-  const toY = (p: number) =>
-    (H - pad - ((p - minP) / range) * (H - pad * 2)).toFixed(1);
-  const linePath = history
-    .map((pt, i) => `${i === 0 ? "M" : "L"} ${toX(i)} ${toY(pt.price)}`)
-    .join(" ");
-  const areaPath = `${linePath} L ${toX(history.length - 1)} ${H} L 0 ${H} Z`;
-  const current = history[history.length - 1].price;
-  const isUp = current >= history[0].price;
-  const color = isUp ? "#2be3d4" : "#e07a4a";
-  const fmtTime = (ts: number) => {
-    const d = new Date(ts);
-    return `${d.getHours().toString().padStart(2, "0")}:${d.getMinutes().toString().padStart(2, "0")}`;
-  };
-  const gradId = `cg-${compact ? "c" : "d"}-${isUp ? "u" : "d"}`;
-  return (
-    <div style={{ width: "100%" }}>
-      <svg
-        viewBox={`0 0 ${W} ${H}`}
-        preserveAspectRatio="none"
-        style={{ width: "100%", height, display: "block" }}
-      >
-        <defs>
-          <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor={color} stopOpacity="0.18" />
-            <stop offset="100%" stopColor={color} stopOpacity="0.01" />
-          </linearGradient>
-        </defs>
-        <path d={areaPath} fill={`url(#${gradId})`} />
-        <path
-          d={linePath}
-          fill="none"
-          stroke={color}
-          strokeWidth="1.6"
-          strokeLinejoin="round"
-          strokeLinecap="round"
-        />
-        <circle
-          cx={toX(history.length - 1)}
-          cy={toY(current)}
-          r="2.5"
-          fill={color}
-        />
-        {!compact && (
-          <>
-            <text
-              x="2"
-              y="10"
-              fontSize="7"
-              fill="rgba(205,187,150,0.45)"
-              textAnchor="start"
-            >
-              {maxP.toFixed(3)}
-            </text>
-            <text
-              x="2"
-              y={H - 2}
-              fontSize="7"
-              fill="rgba(205,187,150,0.45)"
-              textAnchor="start"
-            >
-              {minP.toFixed(3)}
-            </text>
-          </>
-        )}
-      </svg>
-      {!compact && (
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            fontSize: "9px",
-            color: "rgba(205,187,150,0.35)",
-            marginTop: 2,
-          }}
-        >
-          <span>{fmtTime(history[0].time)}</span>
-          <span>{fmtTime(history[Math.floor(history.length / 2)].time)}</span>
-          <span>{fmtTime(history[history.length - 1].time)}</span>
-        </div>
-      )}
-    </div>
-  );
-}
 
 // ── helpers ──
 const PHASE_STEPS: { key: Phase; label: string }[] = [
@@ -369,13 +259,14 @@ export default function DemoGame() {
       const now = Date.now();
       const cur = pricesRef.current;
       const keys = Object.keys(cur);
-      const count = 2 + Math.floor(Math.random() * 3);
+      // more volatile: wider swings, more words moving per tick
+      const count = 3 + Math.floor(Math.random() * 5);
       const updates: Record<string, number> = {};
       const moved: string[] = [];
       for (let i = 0; i < count; i++) {
         const k = keys[Math.floor(Math.random() * keys.length)];
-        const delta = Math.random() * 0.16 - 0.08;
-        updates[k] = Math.max(0.1, +((cur[k] ?? 0.5) * (1 + delta)).toFixed(3));
+        const delta = (Math.random() * 0.34 - 0.17) * (Math.random() < 0.3 ? 2.2 : 1);
+        updates[k] = Math.max(0.05, Math.min(5.0, +((cur[k] ?? 0.5) * (1 + delta)).toFixed(3)));
         moved.push(`${k} ${delta > 0 ? "▲" : "▼"}`);
       }
       setPrices((prev) => ({ ...prev, ...updates }));
@@ -1287,16 +1178,36 @@ export default function DemoGame() {
                     </div>
                   )}
 
-                  <div className="mt-5 border-t border-gold/15 pt-4 space-y-1.5">
-                    <div className="stat-row">
-                      <dt>Balance</dt>
-                      <dd>{fmt(balance)} USDC</dd>
-                    </div>
-                    <div className="stat-row">
-                      <dt>Total staked</dt>
-                      <dd>{fmt(spent)} USDC</dd>
-                    </div>
-                  </div>
+                  {/* P&L panel */}
+                  {(() => {
+                    const unrealised = Object.entries(positions).reduce((sum, [word, stake]) => {
+                      const cur = prices[word] ?? 0;
+                      const base = pool.find((w) => w.word === word)?.price ?? cur;
+                      // approximate mark-to-market: current price vs entry (base)
+                      return sum + stake * (cur / Math.max(base, 0.01) - 1);
+                    }, 0);
+                    const isPos = unrealised >= 0;
+                    return (
+                      <div className="mt-5 border-t border-gold/15 pt-4 space-y-1.5">
+                        <div className="stat-row"><dt>Balance</dt><dd>{fmt(balance)} USDC</dd></div>
+                        <div className="stat-row"><dt>Total staked</dt><dd>{fmt(spent)} USDC</dd></div>
+                        <div className="stat-row">
+                          <dt>Unrealised P&amp;L</dt>
+                          <dd style={{ color: isPos ? "#2be3d4" : "#e07a4a", fontWeight: 700 }}>
+                            {isPos ? "+" : ""}{fmt(unrealised)} USDC
+                          </dd>
+                        </div>
+                        {spent > 0 && (
+                          <div className="stat-row">
+                            <dt>Return</dt>
+                            <dd style={{ color: isPos ? "#2be3d4" : "#e07a4a" }}>
+                              {isPos ? "+" : ""}{((unrealised / spent) * 100).toFixed(1)}%
+                            </dd>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()}
 
                   {waitCountdown === 0 ? (
                     <button
@@ -1304,7 +1215,7 @@ export default function DemoGame() {
                       className="btn btn-gold mt-6 w-full"
                       onClick={() => setWaitCountdown(4)}
                     >
-                      ✓ I&apos;m Ready — Lock My Positions
+                      Speech Day is here — Lock &amp; Listen →
                     </button>
                   ) : (
                     <div
@@ -1315,15 +1226,14 @@ export default function DemoGame() {
                       }}
                     >
                       <p className="kicker mb-1" style={{ color: "#2be3d4" }}>
-                        Positions locked ✓
+                        Trading closed — positions locked ✓
                       </p>
                       <p className="text-sm text-cream/70 mb-2">
-                        Waiting for organizer to start the event…
+                        Waiting for organizer to start the live event…
                       </p>
                       <p className="h-display text-4xl text-gold-bright">{waitCountdown}</p>
                       <p className="text-xs text-cream/30 mt-2">
-                        In production: organizer triggers on-chain · no early exit after
-                        lock
+                        In production: organizer triggers on-chain · no early exit after lock
                       </p>
                     </div>
                   )}
