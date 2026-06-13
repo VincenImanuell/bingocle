@@ -25,7 +25,7 @@ export async function cmdWallet(userKey: string): Promise<string> {
 
 export async function cmdCreate(theme: string): Promise<string> {
   const t = theme || "Web3 · AI · Startup";
-  const { eventId, txHash } = await agentApi.createEvent({});
+  const { eventId, txHash } = await agentApi.createEvent({ theme: t });
   inbox.set(eventId, []);
   return (
     `✅ Event #${eventId} created (theme: ${t}).\ntx: ${txHash}\n\n` +

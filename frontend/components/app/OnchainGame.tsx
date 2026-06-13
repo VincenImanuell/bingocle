@@ -15,6 +15,7 @@ import { formatEther, parseEther } from "viem";
 import { wagmiConfig } from "@/lib/wagmi";
 import {
   addresses,
+  AGENT_API,
   bingoCardAbi,
   eventFactoryAbi,
   fetchEventRecord,
@@ -57,6 +58,7 @@ export default function OnchainGame() {
   const { address, isConnected } = useAccount();
   const [eventId, setEventId] = useState(0);
   const [record, setRecord] = useState<EventRecord | null>(null);
+  const [themes, setThemes] = useState<Record<number, string>>({});
   const [wordInput, setWordInput] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [submitMsg, setSubmitMsg] = useState<string | null>(null);
@@ -89,6 +91,26 @@ export default function OnchainGame() {
     [totalEvents]
   );
   const { data: lobbyPhases } = useReadContracts({ contracts: lobbyCalls });
+
+  // Event titles (themes) for the lobby — fetched from the agent's records.
+  useEffect(() => {
+    if (!isConnected || eventId !== 0 || totalEvents === 0) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`${AGENT_API}/events`);
+        if (!res.ok) return;
+        const list = await res.json();
+        if (cancelled || !Array.isArray(list)) return;
+        const map: Record<number, string> = {};
+        for (const r of list) if (r?.eventId && r?.theme) map[Number(r.eventId)] = String(r.theme);
+        setThemes(map);
+      } catch {
+        /* lobby still renders with "Event #N" fallbacks */
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [isConnected, eventId, totalEvents]);
 
   // ── contract reads ──
   const { data: meta, refetch: refetchMeta } = useReadContracts({
@@ -399,6 +421,9 @@ export default function OnchainGame() {
                         }}>
                           {phaseName}
                         </span>
+                      </div>
+                      <div className="h-display" style={{ fontSize: "1.1rem", color: "#f2e8d2", lineHeight: 1.15, marginBottom: "0.7rem" }}>
+                        {themes[id] ?? `Event #${id}`}
                       </div>
                       <div style={{ display: "flex", gap: 4, marginTop: 4 }}>
                         {PHASE_STEPS.map((p, pi) => (

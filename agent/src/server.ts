@@ -3,7 +3,7 @@ import { config } from "./config.js";
 import { createEvent, phaseOf } from "./services/event.js";
 import { curateAndCommit } from "./services/pool.js";
 import { validateTranscript } from "./services/oracleRun.js";
-import { getEvent, listEvents } from "./store.js";
+import { getEvent, listEvents, ensureEvent, addSubmission } from "./store.js";
 import { contracts } from "./chain.js";
 
 const app = express();
@@ -44,7 +44,28 @@ app.post(
   "/events",
   wrap(async (req, res) => {
     const out = await createEvent(req.body ?? {});
-    res.json(out);
+    // Persist the theme/title (+ open a submissions inbox) so the lobby can show
+    // a name and the web/email surfaces can submit words before curation.
+    const theme = String(req.body?.theme ?? "").trim();
+    ensureEvent(out.eventId, theme);
+    res.json({ ...out, theme });
+  }),
+);
+
+// Submit a predicted word (web/email surface; the Telegram bot keeps its own inbox
+// and both are merged at commit-pool).
+app.post(
+  "/events/:id/submit",
+  wrap(async (req, res) => {
+    const id = Number(req.params.id);
+    const word = String(req.body?.word ?? "").trim();
+    const player = String(req.body?.player ?? req.body?.wallet ?? "");
+    if (!word || word.length > 40) {
+      res.status(400).json({ reason: "word must be 1–40 characters" });
+      return;
+    }
+    addSubmission(id, { raw: word, wallet: player, ts: Math.floor(Date.now() / 1000) });
+    res.json({ ok: true });
   }),
 );
 
@@ -69,11 +90,15 @@ app.post(
   wrap(async (req, res) => {
     const id = Number(req.params.id);
     const { theme, description, submissions } = req.body ?? {};
+    // Merge submissions passed in the body (bot inbox) with any collected via the
+    // web/email /submit endpoint so curation sees every predicted word.
+    const stored = getEvent(id)?.submissions ?? [];
+    const merged = [...(submissions ?? []), ...stored];
     const rec = await curateAndCommit({
       eventId: id,
       theme,
       description,
-      submissions: submissions ?? [],
+      submissions: merged,
     });
     res.json(rec);
   }),
