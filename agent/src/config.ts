@@ -15,7 +15,7 @@ export const SCALE = 10_000;
 
 export const config = {
   geminiApiKey: process.env.GEMINI_API_KEY ?? "",
-  model: "gemini-2.0-flash",
+  model: process.env.GEMINI_MODEL ?? "gemini-2.5-flash",
 
   rpcUrl: process.env.MANTLE_RPC_URL ?? "https://rpc.sepolia.mantle.xyz",
   chainId: Number(process.env.CHAIN_ID ?? 5003),

@@ -11,7 +11,7 @@ export const config = {
   // messages are interpreted into a Bingocle verb via Gemini. Without it, the
   // Capability still works fully via slash/verb commands (deterministic fallback).
   geminiApiKey: process.env.GEMINI_API_KEY ?? "",
-  geminiModel: process.env.GEMINI_MODEL ?? "gemini-2.0-flash",
+  geminiModel: process.env.GEMINI_MODEL ?? "gemini-2.5-flash",
 
   addresses: {
     eventFactory: process.env.EVENT_FACTORY_ADDRESS ?? "",

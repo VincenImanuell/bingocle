@@ -37,7 +37,7 @@ Smart contracts  : EventFactory · WordPool · WordMarket · OracleRegistry
    (Mantle)        BingoCardNFT · RewardVault · AgentIdentity
 ```
 
-**Stack:** Solidity (Foundry) · Next.js + wagmi/viem · Node.js agent service · Whisper (STT, optional) · Google Gemini `gemini-2.0-flash` (Curator / Odds / Oracle reasoning) · Minds Capability (`SKILL.md` + `/agent-guide`, Telegram + email) · Mantle Sepolia → Mainnet.
+**Stack:** Solidity (Foundry) · Next.js + wagmi/viem · Node.js agent service · Whisper (STT, optional) · Google Gemini `gemini-2.5-flash` (Curator / Odds / Oracle reasoning) · Minds Capability (`SKILL.md` + `/agent-guide`, Telegram + email) · Mantle Sepolia → Mainnet.
 
 ## Repository structure
 
@@ -127,7 +127,7 @@ The complete design — features, architecture, judging-criteria alignment, MVP 
 
 - [x] Core contracts (7) — `EventFactory · WordPool · WordMarket · OracleRegistry · BingoCardNFT · RewardVault · AgentIdentity` — compiling, unit-tested (Foundry)
 - [x] ERC-8004 identity NFT for the oracle agent (soulbound, accruing reputation)
-- [x] AI Word Curator + Odds Engine (Gemini `gemini-2.0-flash`)
+- [x] AI Word Curator + Odds Engine (Gemini `gemini-2.5-flash`)
 - [x] AI Validation Oracle (LLM matching → on-chain commit; recorded-transcript demo path)
 - [x] Bingocle Capability over Telegram + `/agent-guide` (per-user demo wallets)
 - [ ] Deploy + verify on Mantle Sepolia Explorer (run `Deploy.s.sol`, paste addresses above)
