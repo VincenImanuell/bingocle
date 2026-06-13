@@ -3,26 +3,35 @@
   "publicId": "bingocle",
   "version": "0.1.0",
   "tagline": "Trade the words before they hit the card.",
-  "description": "A community bingo prediction market refereed by an AI oracle on Mantle. Predict the words a speaker will say live; an AI Validation Oracle listens, calls the bingo, and settles on-chain. Play entirely by chatting — no terminal, no seed phrase.",
+  "description": "A community bingo prediction market refereed by an AI oracle on Mantle. Predict the words a speaker will say live; an AI Validation Oracle listens, calls the bingo, and settles on-chain. Play entirely by chatting — no terminal, no seed phrase. Talk in plain language or use commands.",
   "channels": ["telegram", "email"],
-  "activation": {
-    "telegram": "Send /start to the Bingocle bot.",
-    "email": "Email the capability with one instruction per line (same verbs as Telegram)."
+  "handles": {
+    "telegram": "REPLACE-WITH-BOT-USERNAME (e.g. @BingocleBot)",
+    "email": "REPLACE-WITH-CAPABILITY-EMAIL (the mailbox the email surface polls)"
   },
+  "activation": {
+    "telegram": "Open the Bingocle bot and send /start (or just say what you want, e.g. \"show my wallet\").",
+    "email": "Email the capability address. Write commands one per line, or just describe what you want in plain English."
+  },
+  "activationMessage": "🎲 Bingocle — predict the words a speaker will say live; an AI oracle calls the bingo on Mantle. You get an embedded testnet demo wallet (no seed phrase). Say \"show my wallet\" or send /start to begin.",
+  "naturalLanguage": true,
   "track": "Consumer & Viral DApps (Animoca Minds)",
   "chain": { "name": "Mantle", "network": "Sepolia testnet", "chainId": 5003 },
   "agentGuide": "AGENT-GUIDE.md",
+  "skill": "SKILL.md",
   "commands": [
-    { "name": "/wallet", "summary": "Show your embedded demo wallet + balance" },
-    { "name": "/create", "args": "<theme>", "summary": "Organizer: create an event on-chain" },
-    { "name": "/submit", "args": "<id> word1, word2, word3", "summary": "Predict up to 3 words; first submitter founds the word" },
-    { "name": "/finalize", "args": "<id> <theme>", "summary": "Organizer: AI-curate the pool + odds and commit on-chain" },
-    { "name": "/pool", "args": "<id>", "summary": "List curated words, odds, and current phase" },
-    { "name": "/card", "args": "<id>", "summary": "Mint and view your 5x5 bingo card with live marks" },
-    { "name": "/price", "args": "<id> <word>", "summary": "Current share price of a word (moves with demand)" },
-    { "name": "/buy", "args": "<id> <word> <shares>", "summary": "Buy word shares on the bonding curve; price rises with demand" },
-    { "name": "/sell", "args": "<id> <word> <shares>", "summary": "Sell shares back before lock to realize profit/loss" },
-    { "name": "/validate", "args": "<id> [transcript]", "summary": "Organizer: run the AI oracle and commit verdicts on-chain" },
-    { "name": "/claim", "args": "<id>", "summary": "Redeem trading payouts, bingo bonuses, and founder seeds" }
+    { "name": "/start", "who": "anyone", "summary": "Intro + the full command list" },
+    { "name": "/agentguide", "who": "anyone", "summary": "The complete self-contained operator guide" },
+    { "name": "/wallet", "who": "anyone", "summary": "Show your embedded demo wallet + balance" },
+    { "name": "/create", "who": "organizer", "args": "<theme>", "summary": "Create an event on-chain" },
+    { "name": "/submit", "who": "player", "args": "<id> word1, word2, word3", "summary": "Predict up to 3 words; first submitter founds the word" },
+    { "name": "/finalize", "who": "organizer", "args": "<id> <theme>", "summary": "AI-curate the pool + odds and commit on-chain" },
+    { "name": "/pool", "who": "anyone", "args": "<id>", "summary": "List curated words, odds, and current phase" },
+    { "name": "/card", "who": "player", "args": "<id>", "summary": "Mint and view your 5x5 bingo card with live marks" },
+    { "name": "/price", "who": "player", "args": "<id> <word>", "summary": "Current share price of a word (moves with demand)" },
+    { "name": "/buy", "who": "player", "args": "<id> <word> <shares>", "summary": "Buy word shares on the bonding curve; price rises with demand" },
+    { "name": "/sell", "who": "player", "args": "<id> <word> <shares>", "summary": "Sell shares back before lock to realize profit/loss" },
+    { "name": "/validate", "who": "organizer", "args": "<id> [transcript]", "summary": "Run the AI oracle and commit verdicts on-chain" },
+    { "name": "/claim", "who": "player", "args": "<id>", "summary": "Redeem trading payouts, bingo bonuses, and founder seeds" }
   ]
 }

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { structured } from "./anthropic.js";
+import { structured } from "./gemini.js";
 
 export type OracleMatch = {
   wordIndex: number;

@@ -13,15 +13,15 @@
 - Players **buy positions** on words and receive a **bingo card NFT**.
 - An **AI Validation Oracle** listens to the event (speech-to-text + LLM), and **writes each verdict on-chain** to Mantle — which marks every card and settles rewards automatically.
 
-You operate all of this **by chatting** — over Telegram (and email). No terminal, no seed phrase: every user gets an embedded **testnet demo wallet** derived for them.
+You operate all of this **by chatting** — over Telegram (and email). No terminal, no seed phrase: every user gets an embedded **testnet demo wallet** derived for them. You can talk in **plain language** ("show my wallet", "buy 2 shares of airdrop in event 1", "I bet she says mainnet and oracle") or use the exact commands below — both work.
 
 ---
 
 ## 2. Activation
 
-- **Telegram:** open the bot (`@BingocleBot` once published) and send `/start`.
-- **Email:** send a message to the Capability's address with one instruction per line (same verbs as below).
-- First, send `/wallet` to see the demo wallet you've been assigned, then fund it with **Mantle Sepolia testnet MNT** from a faucet (e.g. the Mantle Sepolia faucet). You need a small balance to buy and claim.
+- **Telegram:** open the bot (handle published in `capability.json` → `handles.telegram`) and send `/start`, or just say what you want.
+- **Email:** send a message to the Capability's address (`capability.json` → `handles.email`). Write one instruction per line, **or** just describe what you want in plain English.
+- First, send `/wallet` to see the demo wallet you've been assigned, then fund it with **Mantle Sepolia testnet MNT** from the [Mantle Sepolia faucet](https://faucet.sepolia.mantle.xyz/). You need a small balance to buy and claim.
 
 > All money is **testnet MNT**. This is a demo; never send real funds.
 
@@ -29,9 +29,12 @@ You operate all of this **by chatting** — over Telegram (and email). No termin
 
 ## 3. The commands (your full toolset)
 
+> You can also just **type what you want** in plain language — the Capability maps it to the right command. The commands below are the precise forms.
+
 | Command | Who | What it does |
 |---|---|---|
 | `/start` | anyone | Intro + command list |
+| `/agentguide` | anyone | Print this full operator guide inside the chat |
 | `/wallet` | anyone | Show your demo wallet address + MNT balance |
 | `/create <theme>` | organizer | Create a new event on-chain. Returns an **event id** |
 | `/submit <id> word1, word2, word3` | player | Predict up to 3 words. **First** to submit a word becomes its **Founder** (a free seed position) |
@@ -108,11 +111,11 @@ Every oracle verdict — the word, a confidence score, and a transcript snippet 
 
 If you are setting up your own instance (not just playing):
 
-1. A running **Bingocle agent service** (`agent/`) with `ANTHROPIC_API_KEY`, a funded Mantle Sepolia agent wallet, and the deployed contract addresses in `.env`. It exposes the AI Curator / Odds / Oracle and organizer-wallet actions over HTTP.
-2. This **Telegram bot** (`capability/`) with `TELEGRAM_BOT_TOKEN`, `AGENT_API_URL`, a `DEMO_WALLET_MNEMONIC`, and the same contract addresses.
-3. The **contracts** deployed on Mantle Sepolia (`contracts/`, `forge script script/Deploy.s.sol`).
+1. A running **Bingocle agent service** (`agent/`) with `GEMINI_API_KEY`, a funded Mantle Sepolia agent wallet (`AGENT_PRIVATE_KEY`), and the deployed contract addresses in `.env`. It exposes the AI Curator / Odds / Oracle and organizer-wallet actions over HTTP. **Host it publicly** (Docker/Render/Railway/Fly — see `agent/Dockerfile` and `render.yaml`) and point `AGENT_API_URL` at that HTTPS URL — organizer/AI actions (`/create`, `/finalize`, `/validate`, `/pool`) call it, so it cannot be `localhost` for remote players or other Minds.
+2. This **Capability** (`capability/`) with `TELEGRAM_BOT_TOKEN`, the public `AGENT_API_URL`, a `DEMO_WALLET_MNEMONIC`, optional `GEMINI_API_KEY` (for plain-language chat), and the same contract addresses. Contract ABIs are **embedded** (`src/abis.ts`), so no Foundry build is needed to run it.
+3. The **contracts** deployed on Mantle Sepolia (`contracts/`, `forge script script/Deploy.s.sol`). Already live — addresses are in the repo `README.md`.
 
-See the repo `README.md` for the one-command setup. The bot needs only the chat — everything else is wired for the player.
+The player-side verbs (`/wallet`, `/card`, `/buy`, `/sell`, `/claim`, `/price`) run **directly on-chain** from the embedded wallet and need only the public RPC + addresses; only the organizer/AI verbs require the agent service.
 
 ---
 

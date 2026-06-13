@@ -1,18 +1,18 @@
-import fs from "node:fs";
-import path from "node:path";
 import { ethers } from "ethers";
 import { config } from "./config.js";
 import { provider } from "./wallets.js";
+import { ABIS } from "./abis.js";
 
-function loadAbi(name: string): ethers.InterfaceAbi {
-  const file = path.join(config.contractsOut, `${name}.sol`, `${name}.json`);
-  if (!fs.existsSync(file)) throw new Error(`ABI not found: ${file} (run forge build).`);
-  return JSON.parse(fs.readFileSync(file, "utf8")).abi as ethers.InterfaceAbi;
-}
-
+/**
+ * On-chain bindings for the player-side verbs (buy / sell / card / claim / price).
+ * ABIs are EMBEDDED (see abis.ts) so the Capability runs from its published package
+ * alone — no local Foundry build, no repo checkout. Addresses come from env.
+ */
 function at(name: string, address: string, runner: ethers.ContractRunner): ethers.Contract {
   if (!address) throw new Error(`Missing address for ${name}`);
-  return new ethers.Contract(address, loadAbi(name), runner);
+  const abi = ABIS[name];
+  if (!abi) throw new Error(`No embedded ABI for ${name}`);
+  return new ethers.Contract(address, abi, runner);
 }
 
 const A = config.addresses;

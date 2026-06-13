@@ -1,26 +1,15 @@
 import { ImapFlow } from "imapflow";
 import nodemailer from "nodemailer";
 import { config } from "./config.js";
-import {
-  cmdWallet,
-  cmdCreate,
-  cmdSubmit,
-  cmdFinalize,
-  cmdPool,
-  cmdCard,
-  cmdPrice,
-  cmdBuy,
-  cmdSell,
-  cmdValidate,
-  cmdClaim,
-  parseLine,
-} from "./commands.js";
+import { dispatch, parseLine, isVerb } from "./commands.js";
+import { interpret } from "./nlu.js";
 
 /**
  * Email surface for the Capability — inbox-native play. Polls IMAP for new mail,
- * runs each command line through the shared command core keyed by the sender's
- * address (their demo wallet), and replies via SMTP. Same verbs as Telegram,
- * one per line in the email body. Needs IMAP and SMTP creds (see .env.example).
+ * runs the shared command core keyed by the sender's address (their demo wallet),
+ * and replies via SMTP. Same verbs as Telegram. You can write one command per
+ * line, OR just write what you want in plain English — free-text messages are
+ * interpreted by the same NLU layer the bot uses. Needs IMAP + SMTP creds.
  */
 const e = config.email;
 
@@ -33,52 +22,30 @@ function smtp() {
   });
 }
 
-/** Run one command line for a sender; returns the reply text. */
-async function runLine(sender: string, line: string): Promise<string | null> {
-  const { cmd, rest } = parseLine(line);
-  const a = rest.split(/\s+/).filter(Boolean);
-  switch (cmd) {
-    case "wallet":
-      return cmdWallet(sender);
-    case "create":
-      return cmdCreate(rest);
-    case "submit": {
-      const words = rest.slice(rest.indexOf(" ") + 1).split(",").map((s) => s.trim()).filter(Boolean);
-      return cmdSubmit(sender, Number(a[0]), words);
-    }
-    case "finalize":
-      return cmdFinalize(Number(a[0]), a.slice(1).join(" "));
-    case "pool":
-      return cmdPool(Number(a[0]));
-    case "card":
-      return cmdCard(sender, Number(a[0]));
-    case "price":
-      return cmdPrice(Number(a[0]), a.slice(1).join(" "));
-    case "buy":
-      return cmdBuy(sender, Number(a[0]), a.slice(1, -1).join(" "), a[a.length - 1]);
-    case "sell":
-      return cmdSell(sender, Number(a[0]), a.slice(1, -1).join(" "), a[a.length - 1]);
-    case "validate":
-      return cmdValidate(Number(a[0]), a.slice(1).join(" ") || undefined);
-    case "claim":
-      return cmdClaim(sender, Number(a[0]));
-    default:
-      return null; // ignore non-command lines (quoted history, signatures)
-  }
-}
-
 async function handleMessage(sender: string, subject: string, body: string): Promise<string> {
   const lines = `${subject}\n${body}`.split(/\r?\n/);
   const replies: string[] = [];
+
+  // 1. Line-by-line command parse (lets a single email run several actions).
   for (const line of lines) {
+    const { cmd, rest } = parseLine(line);
+    if (!isVerb(cmd)) continue; // ignore prose, quoted history, signatures
     try {
-      const r = await runLine(sender, line);
-      if (r) replies.push(r);
+      replies.push(await dispatch(sender, cmd, rest));
     } catch (err: any) {
       replies.push(`⚠️ "${line.trim()}": ${err?.shortMessage ?? err?.message ?? String(err)}`);
     }
   }
-  return replies.length ? replies.join("\n\n") : "No Bingocle commands found. Try: wallet / pool <id> / card <id>.";
+  if (replies.length) return replies.join("\n\n");
+
+  // 2. No explicit commands — interpret the whole message in plain language.
+  try {
+    const intent = await interpret(`${subject}\n${body}`);
+    if (intent.kind === "command") return dispatch(sender, intent.cmd, intent.rest);
+    return intent.text;
+  } catch (err: any) {
+    return `⚠️ ${err?.shortMessage ?? err?.message ?? String(err)}`;
+  }
 }
 
 async function main() {

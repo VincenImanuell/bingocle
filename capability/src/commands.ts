@@ -2,6 +2,7 @@ import { ethers } from "ethers";
 import { agentApi } from "./api.js";
 import { walletFor, provider } from "./wallets.js";
 import { asUser, read, wordIndexOf } from "./chain.js";
+import { AGENT_GUIDE } from "./guide.js";
 
 /**
  * Channel-agnostic command core. Both the Telegram bot and the email adapter call
@@ -170,4 +171,94 @@ export function parseLine(line: string): { cmd: string; rest: string } {
   const sp = t.indexOf(" ");
   if (sp < 0) return { cmd: t.toLowerCase(), rest: "" };
   return { cmd: t.slice(0, sp).toLowerCase(), rest: t.slice(sp + 1).trim() };
+}
+
+/** Every verb the Capability understands (also used by the NLU layer). */
+export const VERBS = [
+  "start",
+  "help",
+  "agentguide",
+  "wallet",
+  "create",
+  "submit",
+  "pool",
+  "card",
+  "price",
+  "buy",
+  "sell",
+  "finalize",
+  "validate",
+  "claim",
+] as const;
+export type Verb = (typeof VERBS)[number];
+
+export function isVerb(cmd: string): cmd is Verb {
+  return (VERBS as readonly string[]).includes(cmd.replace(/^\//, "").toLowerCase());
+}
+
+export const START_TEXT =
+  "🎲 Bingocle — trade the words before they hit the card.\n\n" +
+  "Predict the words a speaker will say live; an AI oracle calls the bingo on Mantle. " +
+  "You get an embedded testnet demo wallet — no seed phrase.\n\n" +
+  "Talk to me in plain language (\"show my wallet\", \"buy 2 shares of airdrop in event 1\") " +
+  "or use commands:\n\n" +
+  "/wallet — your demo wallet\n" +
+  "/create <theme> — start an event\n" +
+  "/submit <id> word1, word2, word3 — predict words\n" +
+  "/pool <id> — see curated words, odds, phase\n" +
+  "/card <id> — mint/view your bingo card\n" +
+  "/price <id> <word> — current share price\n" +
+  "/buy <id> <word> <shares> — buy shares (price rises with demand)\n" +
+  "/sell <id> <word> <shares> — sell shares (take profit before lock)\n" +
+  "/claim <id> — redeem winnings\n" +
+  "/agentguide — full operator guide";
+
+/**
+ * One dispatcher for every surface (Telegram, email, NLU). Takes a verb + the
+ * raw remainder string and runs the matching command. Arg parsing lives here so
+ * all channels behave identically.
+ */
+export async function dispatch(userKey: string, cmd: string, rest: string): Promise<string> {
+  const verb = cmd.replace(/^\//, "").toLowerCase();
+  const a = rest.trim().split(/\s+/).filter(Boolean);
+
+  switch (verb) {
+    case "start":
+      return START_TEXT;
+    case "help":
+      return START_TEXT;
+    case "agentguide":
+      return AGENT_GUIDE;
+    case "wallet":
+      return cmdWallet(userKey);
+    case "create":
+      return cmdCreate(rest.trim());
+    case "submit": {
+      const id = Number(a[0]);
+      const words = rest
+        .slice(rest.indexOf(a[0] ?? "") + (a[0]?.length ?? 0))
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean);
+      return cmdSubmit(userKey, id, words);
+    }
+    case "finalize":
+      return cmdFinalize(Number(a[0]), a.slice(1).join(" "));
+    case "pool":
+      return cmdPool(Number(a[0]));
+    case "card":
+      return cmdCard(userKey, Number(a[0]));
+    case "price":
+      return cmdPrice(Number(a[0]), a.slice(1).join(" "));
+    case "buy":
+      return cmdBuy(userKey, Number(a[0]), a.slice(1, -1).join(" "), a[a.length - 1]);
+    case "sell":
+      return cmdSell(userKey, Number(a[0]), a.slice(1, -1).join(" "), a[a.length - 1]);
+    case "validate":
+      return cmdValidate(Number(a[0]), a.slice(1).join(" ") || undefined);
+    case "claim":
+      return cmdClaim(userKey, Number(a[0]));
+    default:
+      return `Unknown command "${cmd}". Send /start for the command list.`;
+  }
 }

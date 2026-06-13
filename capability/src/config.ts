@@ -1,8 +1,4 @@
 import "dotenv/config";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 export const config = {
   telegramToken: process.env.TELEGRAM_BOT_TOKEN ?? "",
@@ -10,6 +6,13 @@ export const config = {
   rpcUrl: process.env.MANTLE_RPC_URL ?? "https://rpc.sepolia.mantle.xyz",
   chainId: Number(process.env.CHAIN_ID ?? 5003),
   demoMnemonic: process.env.DEMO_WALLET_MNEMONIC ?? "",
+
+  // Optional natural-language understanding. When set, free-text (non-command)
+  // messages are interpreted into a Bingocle verb via Gemini. Without it, the
+  // Capability still works fully via slash/verb commands (deterministic fallback).
+  geminiApiKey: process.env.GEMINI_API_KEY ?? "",
+  geminiModel: process.env.GEMINI_MODEL ?? "gemini-2.0-flash",
+
   addresses: {
     eventFactory: process.env.EVENT_FACTORY_ADDRESS ?? "",
     wordPool: process.env.WORD_POOL_ADDRESS ?? "",
@@ -19,9 +22,6 @@ export const config = {
     rewardVault: process.env.REWARD_VAULT_ADDRESS ?? "",
     agentIdentity: process.env.AGENT_IDENTITY_ADDRESS ?? "",
   },
-  contractsOut:
-    process.env.CONTRACTS_OUT ??
-    path.resolve(__dirname, "..", "..", "contracts", "out"),
 
   // Email channel (optional second surface). IMAP poll in, SMTP reply out.
   email: {

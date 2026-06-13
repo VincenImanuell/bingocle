@@ -12,6 +12,7 @@
     "oracle": "tsx src/cli/oracle.ts",
     "oracle:audio": "tsx src/cli/validateAudio.ts",
     "e2e:local": "tsx scripts/e2e-local.ts",
+    "demo:event": "tsx scripts/create-demo-event.ts",
     "test": "node --import tsx --test test/*.test.ts"
   },
   "dependencies": {

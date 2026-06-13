@@ -7,6 +7,23 @@ import { getEvent, listEvents } from "./store.js";
 import { contracts } from "./chain.js";
 
 const app = express();
+
+// CORS — the public web app (Vercel) and remote Minds call this service from the
+// browser, so cross-origin requests must be allowed. Set CORS_ORIGIN to the
+// frontend origin in production; defaults to "*" for the open testnet demo.
+const corsOrigin = process.env.CORS_ORIGIN ?? "*";
+app.use((req, res, next) => {
+  res.header("Access-Control-Allow-Origin", corsOrigin);
+  res.header("Vary", "Origin");
+  res.header("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
+  res.header("Access-Control-Allow-Headers", "Content-Type");
+  if (req.method === "OPTIONS") {
+    res.sendStatus(204);
+    return;
+  }
+  next();
+});
+
 app.use(express.json({ limit: "1mb" }));
 
 function wrap(fn: (req: express.Request, res: express.Response) => Promise<unknown>) {

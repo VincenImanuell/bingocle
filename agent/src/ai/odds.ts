@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { structured } from "./anthropic.js";
+import { structured } from "./gemini.js";
 import { SCALE } from "../config.js";
 import type { CuratedWord } from "./curator.js";
 

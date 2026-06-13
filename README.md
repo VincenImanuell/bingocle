@@ -37,7 +37,7 @@ Smart contracts  : EventFactory · WordPool · WordMarket · OracleRegistry
    (Mantle)        BingoCardNFT · RewardVault · AgentIdentity
 ```
 
-**Stack:** Solidity (Foundry/Hardhat) · Next.js + wagmi/viem · Node.js agent service · Whisper (STT) · Claude API · Minds Capability SDK · Telegram Bot API · Mantle Sepolia → Mainnet.
+**Stack:** Solidity (Foundry) · Next.js + wagmi/viem · Node.js agent service · Whisper (STT, optional) · Google Gemini `gemini-2.0-flash` (Curator / Odds / Oracle reasoning) · Minds Capability (`SKILL.md` + `/agent-guide`, Telegram + email) · Mantle Sepolia → Mainnet.
 
 ## Repository structure
 
@@ -68,7 +68,7 @@ PRIVATE_KEY=0x... AGENT_ADDRESS=0x... RPC_URL=https://rpc.sepolia.mantle.xyz \
 
 # 2. Agent service — AI Curator / Odds / Oracle + organizer API
 cd ../agent
-cp .env.example .env   # ANTHROPIC_API_KEY, AGENT_PRIVATE_KEY, deployed addresses
+cp .env.example .env   # GEMINI_API_KEY, AGENT_PRIVATE_KEY, deployed addresses
 npm install && npm run start
 
 # 3. Capability — the Telegram chat surface
@@ -79,8 +79,26 @@ npm install && npm run start
 # 4. Frontend — landing + the on-chain live market
 cd ../frontend
 # deploy.sh already wrote frontend/.env.local with NEXT_PUBLIC_* addresses
-npm install && npm run dev   # landing at /, live trading market at /play
+npm install && npm run dev   # landing at /, demo at /play, real on-chain app at /app
 ```
+
+### Hosting the side services (for a public submission)
+
+The contracts are on Mantle Sepolia and the web app deploys to Vercel. The two
+Node services ship with Docker + a Render Blueprint:
+
+```bash
+# Agent service — build context is the repo root (it reads ABIs from contracts/out):
+docker build -f agent/Dockerfile -t bingocle-agent .
+
+# Capability (Telegram bot) — self-contained (ABIs embedded):
+docker build -t bingocle-capability ./capability
+```
+
+Or push to GitHub and deploy `render.yaml` as a Render Blueprint (agent = web with a
+public URL, capability = always-on worker). Set the agent's public URL as
+`NEXT_PUBLIC_AGENT_API` (Vercel) and `AGENT_API_URL` (capability). Verify the
+contracts with `MANTLE_API_KEY=… scripts/verify.sh`.
 
 The AI agent wallet (`AGENT_ADDRESS`) is registered as the ERC-8004 oracle and the WordPool curator by the deploy script. Read [`capability/AGENT-GUIDE.md`](capability/AGENT-GUIDE.md) to operate the game from chat.
 
