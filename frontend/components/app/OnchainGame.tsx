@@ -85,6 +85,7 @@ export default function OnchainGame() {
     address: addresses.eventFactory,
     abi: eventFactoryAbi,
     functionName: "eventCount",
+    query: { refetchInterval: 10000 },
   });
   const totalEvents = eventCountData ? Number(eventCountData as bigint) : 0;
 
@@ -98,7 +99,7 @@ export default function OnchainGame() {
     })),
     [totalEvents]
   );
-  const { data: lobbyPhases } = useReadContracts({ contracts: lobbyCalls });
+  const { data: lobbyPhases } = useReadContracts({ contracts: lobbyCalls, query: { refetchInterval: 10000 } });
 
   // Event titles (themes) for the lobby — fetched from the agent's records.
   useEffect(() => {
@@ -127,6 +128,7 @@ export default function OnchainGame() {
       { address: addresses.wordPool, abi: wordPoolAbi, functionName: "wordCount", args: [BigInt(eventId)] },
       { address: addresses.wordPool, abi: wordPoolAbi, functionName: "isCommitted", args: [BigInt(eventId)] },
     ] : [],
+    query: { refetchInterval: 7000 },
   });
   const contractPhase = meta?.[0]?.result !== undefined ? PHASES[Number(meta[0].result)] : "None";
   const wordCount = meta?.[1]?.result ? Number(meta[1].result) : record?.words.length ?? 0;
@@ -154,14 +156,15 @@ export default function OnchainGame() {
       : [],
     [wordCount, eventId, address]
   );
-  const { data: spotPrices, refetch: refetchPrices } = useReadContracts({ contracts: priceCalls });
-  const { data: myShares, refetch: refetchShares } = useReadContracts({ contracts: shareCalls });
+  const { data: spotPrices, refetch: refetchPrices } = useReadContracts({ contracts: priceCalls, query: { refetchInterval: 7000 } });
+  const { data: myShares, refetch: refetchShares } = useReadContracts({ contracts: shareCalls, query: { refetchInterval: 7000 } });
 
   const { data: cardData, refetch: refetchCard } = useReadContracts({
     contracts: address && eventId > 0 ? [
       { address: addresses.bingoCardNFT, abi: bingoCardAbi, functionName: "hasCard", args: [BigInt(eventId), address] },
       { address: addresses.bingoCardNFT, abi: bingoCardAbi, functionName: "cardOf", args: [BigInt(eventId), address] },
     ] : [],
+    query: { refetchInterval: 10000 },
   });
   const hasCard = Boolean(cardData?.[0]?.result);
   const tokenId = cardData?.[1]?.result as bigint | undefined;
@@ -171,6 +174,7 @@ export default function OnchainGame() {
       { address: addresses.bingoCardNFT, abi: bingoCardAbi, functionName: "cardCells", args: [tokenId] },
       { address: addresses.bingoCardNFT, abi: bingoCardAbi, functionName: "markedMask", args: [tokenId] },
     ] : [],
+    query: { refetchInterval: 7000 },
   });
   const cells = cardView?.[0]?.result as readonly number[] | undefined;
   const markedMask = cardView?.[1]?.result ? Number(cardView[1].result) : 0;
@@ -180,7 +184,7 @@ export default function OnchainGame() {
     abi: wordMarketAbi,
     functionName: "previewRedeem",
     args: address && eventId > 0 ? [BigInt(eventId), address] : undefined,
-    query: { enabled: Boolean(address) && eventId > 0 },
+    query: { enabled: Boolean(address) && eventId > 0, refetchInterval: 10000 },
   });
 
   // ── fetch agent record ──
