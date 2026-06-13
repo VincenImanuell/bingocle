@@ -54,6 +54,13 @@ function contractToUi(phase: string): UiPhase {
 const fmt = (n: number, d = 4) => Number(n.toFixed(d)).toString();
 const FREE_IDX = 255;
 
+const SUCCESS_MSG: Record<string, string> = {
+  mint: "🃏 Bingo card minted — your tile layout is locked on-chain!",
+  buy: "📈 Shares bought — position live on-chain.",
+  sell: "💸 Shares sold.",
+  claim: "💰 Winnings claimed!",
+};
+
 export default function OnchainGame() {
   const { address, isConnected } = useAccount();
   const [eventId, setEventId] = useState(0);
@@ -66,6 +73,7 @@ export default function OnchainGame() {
   const [buyAmount, setBuyAmount] = useState("0.01");
   const [busy, setBusy] = useState<string | null>(null);
   const [txHash, setTxHash] = useState<`0x${string}` | undefined>();
+  const [flashMsg, setFlashMsg] = useState<string | null>(null);
   const [priceHistory, setPriceHistory] = useState<Record<number, PricePoint[]>>({});
   const pricesRef = useRef<Record<number, number>>({});
 
@@ -212,6 +220,8 @@ export default function OnchainGame() {
       setTxHash(hash);
       await new Promise((r) => setTimeout(r, 2500));
       refetchAll();
+      setFlashMsg(SUCCESS_MSG[label] ?? "✓ Transaction confirmed");
+      setTimeout(() => setFlashMsg(null), 6000);
     } catch (e) {
       alert((e as { shortMessage?: string })?.shortMessage ?? String(e));
     } finally {
@@ -324,6 +334,14 @@ export default function OnchainGame() {
           <ConnectWalletButton />
         </div>
       </header>
+
+      {flashMsg && (
+        <div style={{ position: "fixed", top: 56, left: 0, right: 0, zIndex: 50, display: "flex", justifyContent: "center", pointerEvents: "none" }}>
+          <div style={{ background: "linear-gradient(160deg,#1f3d36,#0e2a24)", border: "1px solid rgba(43,227,212,0.55)", color: "#bff5ee", padding: "0.6rem 1.2rem", borderRadius: 8, fontSize: "0.9rem", boxShadow: "0 6px 24px rgba(0,0,0,0.45)" }}>
+            {flashMsg}
+          </div>
+        </div>
+      )}
 
       <main className="mx-auto max-w-6xl px-4 pb-24 pt-8 sm:px-6">
         {/* breadcrumb when inside an event */}
