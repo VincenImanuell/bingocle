@@ -149,7 +149,8 @@ async function geminiIntent(text: string): Promise<Interpretation | null> {
     if (out.kind === "command" && !isVerb(out.cmd)) return null;
     if (out.kind === "reply" && !out.text) return null;
     return out;
-  } catch {
+  } catch (e: any) {
+    console.warn("[nlu] gemini intent failed:", e?.message ?? String(e));
     return null; // any LLM/parse failure falls through to the deterministic fallback
   }
 }

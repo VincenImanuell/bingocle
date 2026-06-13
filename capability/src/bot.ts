@@ -45,6 +45,13 @@ bot.on(message("text"), async (ctx) => {
   }
 });
 
-bot.launch().then(() => console.log("Bingocle Telegram capability running."));
+bot.launch().then(() => {
+  console.log("Bingocle Telegram capability running.");
+  console.log(
+    config.geminiApiKey
+      ? `NL chat: ON (model ${config.geminiModel})`
+      : "NL chat: OFF — GEMINI_API_KEY not set (slash/canonical commands still work)",
+  );
+});
 process.once("SIGINT", () => bot.stop("SIGINT"));
 process.once("SIGTERM", () => bot.stop("SIGTERM"));
