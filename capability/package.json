@@ -1,6 +1,6 @@
 {
   "name": "bingocle-capability",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "private": true,
   "type": "module",
   "description": "Bingocle Minds Capability — play the AI bingo prediction market over Telegram and email.",
