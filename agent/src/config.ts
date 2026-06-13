@@ -32,9 +32,9 @@ export const config = {
   },
 
   port: Number(process.env.PORT ?? 8787),
-  contractsOut:
-    process.env.CONTRACTS_OUT ??
-    path.resolve(__dirname, "..", "..", "contracts", "out"),
+  // ABIs are bundled at agent/abis (committed) so the service builds + runs without
+  // a Foundry checkout. Override with CONTRACTS_OUT to use a fresh contracts/out.
+  contractsOut: process.env.CONTRACTS_OUT ?? path.resolve(__dirname, "..", "abis"),
 };
 
 export function requireGemini(): string {
