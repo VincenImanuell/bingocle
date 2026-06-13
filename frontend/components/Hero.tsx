@@ -62,13 +62,14 @@ export default function Hero() {
               </Reveal>
               <Reveal delay={220}>
                 <p className="mt-6 font-heading text-xl italic text-cream/90 sm:text-2xl">
-                  Predict the words. Build the card. Play with the crowd.
+                  Trade the words. Let AI decide. Win on Mantle.
                 </p>
               </Reveal>
               <Reveal delay={300}>
                 <p className="body-copy mx-auto mt-3 max-w-md text-base lg:mx-0">
-                  A social bingo experience where the community decides which
-                  words deserve to appear on the board.
+                  A prediction market bingo game — buy positions on words you think
+                  will be spoken, let the AI oracle validate live, and settle
+                  trustlessly on Mantle Network.
                 </p>
               </Reveal>
               <Reveal delay={400}>
@@ -116,13 +117,13 @@ export default function Hero() {
                 </div>
                 <span className="gcard-nameplate">Bingocle</span>
                 <div className="absolute inset-0 z-[3] flex flex-col items-center justify-center gap-3 pt-6">
-                  <Link href="/app" className="play-btn" aria-label="Play the demo">
+                  <Link href="/play" className="play-btn" aria-label="Play the live market">
                     <span className="tri" aria-hidden="true" />
                   </Link>
                   <span className="watch-label text-center leading-relaxed">
-                    Play
+                    Trade
                     <br />
-                    the Demo
+                    Live
                   </span>
                 </div>
                 </div>

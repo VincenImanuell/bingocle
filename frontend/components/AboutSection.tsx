@@ -90,14 +90,16 @@ export default function AboutSection() {
             What is <span className="gold">Bingocle?</span>
           </h2>
           <p className="body-copy mt-6">
-            Bingocle turns community predictions into a playable bingo card.
-            Players submit words they believe will appear in an event, trend,
-            discussion, or campaign. The most relevant and popular words shape
-            the board, making every game feel alive, social, and unpredictable.
+            Bingocle is a prediction market bingo game on Mantle Network.
+            The crowd submits words they believe a speaker will say. An AI oracle
+            curates the pool, prices each word by probability, and arranges them
+            into a bingo card. Players buy and sell positions like a prediction
+            market — price rises with demand on a bonding curve.
           </p>
           <p className="body-copy mt-4 text-base italic">
-            Built for live events, podcasts, demo days, and community
-            campaigns — every word a prediction, every card a story.
+            When the event goes live, trading closes and the AI oracle listens
+            in real time — validating every word on-chain via an ERC-8004 agent
+            identity. No admin marks words. Settlement is trustless on Mantle.
           </p>
           <a href="#how-to-play" className="link-arrow mt-8">
             <ArrowOrb />
