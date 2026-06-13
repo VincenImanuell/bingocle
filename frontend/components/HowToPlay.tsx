@@ -131,7 +131,13 @@ export default function HowToPlay() {
         </div>
 
         {/* game-flow step panels */}
-        <div className="mt-16 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="mt-16">
+          <p className="kicker mb-1 text-center lg:text-left">Per-event lifecycle</p>
+          <p className="body-copy mb-6 text-center text-sm lg:text-left" style={{ fontSize: "0.85rem", color: "rgba(205,187,150,0.55)" }}>
+            Each live event runs through all 6 phases independently — you can participate in multiple events at the same time, each with its own card and positions.
+          </p>
+        </div>
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {STEPS.map((s, i) => (
             <Reveal key={s.n} className="h-full" delay={i * 90}>
               <div className="step-panel flex h-full items-start gap-3.5">
@@ -144,6 +150,7 @@ export default function HowToPlay() {
             </Reveal>
           ))}
         </div>
+
 
         {/* roadmap / future vision */}
         <Reveal delay={200}>

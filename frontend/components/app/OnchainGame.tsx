@@ -55,7 +55,7 @@ const FREE_IDX = 255;
 
 export default function OnchainGame() {
   const { address, isConnected } = useAccount();
-  const [eventId, setEventId] = useState(1);
+  const [eventId, setEventId] = useState(0);
   const [record, setRecord] = useState<EventRecord | null>(null);
   const [wordInput, setWordInput] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -70,13 +70,33 @@ export default function OnchainGame() {
   const { isLoading: txPending } = useWaitForTransactionReceipt({ hash: txHash });
   const { writeContractAsync } = useWriteContract();
 
+  // ── event count (for lobby) ──
+  const { data: eventCountData, refetch: refetchEventCount } = useReadContract({
+    address: addresses.eventFactory,
+    abi: eventFactoryAbi,
+    functionName: "eventCount",
+  });
+  const totalEvents = eventCountData ? Number(eventCountData as bigint) : 0;
+
+  // Fetch phase for each event in lobby
+  const lobbyCalls = useMemo(
+    () => Array.from({ length: totalEvents }, (_, i) => ({
+      address: addresses.eventFactory,
+      abi: eventFactoryAbi,
+      functionName: "phaseOf" as const,
+      args: [BigInt(i + 1)] as const,
+    })),
+    [totalEvents]
+  );
+  const { data: lobbyPhases } = useReadContracts({ contracts: lobbyCalls });
+
   // ── contract reads ──
   const { data: meta, refetch: refetchMeta } = useReadContracts({
-    contracts: [
+    contracts: eventId > 0 ? [
       { address: addresses.eventFactory, abi: eventFactoryAbi, functionName: "phaseOf", args: [BigInt(eventId)] },
       { address: addresses.wordPool, abi: wordPoolAbi, functionName: "wordCount", args: [BigInt(eventId)] },
       { address: addresses.wordPool, abi: wordPoolAbi, functionName: "isCommitted", args: [BigInt(eventId)] },
-    ],
+    ] : [],
   });
   const contractPhase = meta?.[0]?.result !== undefined ? PHASES[Number(meta[0].result)] : "None";
   const wordCount = meta?.[1]?.result ? Number(meta[1].result) : record?.words.length ?? 0;
@@ -108,7 +128,7 @@ export default function OnchainGame() {
   const { data: myShares, refetch: refetchShares } = useReadContracts({ contracts: shareCalls });
 
   const { data: cardData, refetch: refetchCard } = useReadContracts({
-    contracts: address ? [
+    contracts: address && eventId > 0 ? [
       { address: addresses.bingoCardNFT, abi: bingoCardAbi, functionName: "hasCard", args: [BigInt(eventId), address] },
       { address: addresses.bingoCardNFT, abi: bingoCardAbi, functionName: "cardOf", args: [BigInt(eventId), address] },
     ] : [],
@@ -129,13 +149,13 @@ export default function OnchainGame() {
     address: addresses.wordMarket,
     abi: wordMarketAbi,
     functionName: "previewRedeem",
-    args: address ? [BigInt(eventId), address] : undefined,
-    query: { enabled: Boolean(address) },
+    args: address && eventId > 0 ? [BigInt(eventId), address] : undefined,
+    query: { enabled: Boolean(address) && eventId > 0 },
   });
 
   // ── fetch agent record ──
   useEffect(() => {
-    fetchEventRecord(eventId).then(setRecord);
+    if (eventId > 0) fetchEventRecord(eventId).then(setRecord);
   }, [eventId, txPending]);
 
   // ── accumulate price history ──
@@ -265,30 +285,42 @@ export default function OnchainGame() {
       <header className="topbar">
         <div className="mx-auto flex h-11 max-w-6xl items-center justify-between gap-4 px-4">
           <Link href="/" className="wordmark text-lg">Bingocle</Link>
-          <nav aria-label="Game phase" className="hidden items-center gap-1.5 lg:flex">
-            {PHASE_STEPS.map((p, i) => (
-              <span key={p.key} className={`phase-step ${i === phaseIdx ? "active" : ""} ${i < phaseIdx ? "done" : ""}`}>
-                <span className="p-rune">{i < phaseIdx ? "✓" : i + 1}</span>
-                {p.label}
-              </span>
-            ))}
-          </nav>
+          {eventId > 0 ? (
+            <nav aria-label="Game phase" className="hidden items-center gap-1.5 lg:flex">
+              {PHASE_STEPS.map((p, i) => (
+                <span key={p.key} className={`phase-step ${i === phaseIdx ? "active" : ""} ${i < phaseIdx ? "done" : ""}`}>
+                  <span className="p-rune">{i < phaseIdx ? "✓" : i + 1}</span>
+                  {p.label}
+                </span>
+              ))}
+            </nav>
+          ) : (
+            <span className="kicker hidden lg:block" style={{ color: "#9c8a64" }}>
+              On-Chain · Mantle Sepolia
+            </span>
+          )}
           <ConnectButton />
         </div>
       </header>
 
       <main className="mx-auto max-w-6xl px-4 pb-24 pt-8 sm:px-6">
-        <div className="mb-4 flex items-center justify-center gap-3">
-          <p className="kicker">On-chain · Mantle Sepolia · Event</p>
-          <input
-            type="number" min={1} value={eventId}
-            onChange={(e) => { setEventId(Math.max(1, Number(e.target.value))); setSelectedWord(null); }}
-            className="input-dark w-16 text-center text-sm py-1"
-          />
-          <span className="kicker rounded bg-black/30 px-2 py-1">
-            {contractPhase}
-          </span>
-        </div>
+        {/* breadcrumb when inside an event */}
+        {eventId > 0 && (
+          <div className="mb-4 flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => { setEventId(0); setRecord(null); setSelectedWord(null); }}
+              className="kicker hover:text-cream/80 transition-colors"
+            >
+              ← All Events
+            </button>
+            <span className="kicker text-cream/20">|</span>
+            <span className="kicker">Event #{eventId}</span>
+            <span className="kicker rounded bg-black/30 px-2 py-1">
+              {contractPhase}
+            </span>
+          </div>
+        )}
 
         {!isConnected && (
           <div className="mx-auto max-w-md ornate-frame p-8 text-center mb-8">
@@ -305,8 +337,95 @@ export default function OnchainGame() {
           </div>
         )}
 
+        {/* ═══ LOBBY (no event selected) ═══ */}
+        {isConnected && eventId === 0 && (
+          <div className="mx-auto max-w-2xl">
+            <div className="mb-6 text-center">
+              <p className="kicker mb-1">On-Chain · Mantle Sepolia</p>
+              <h1 className="h-display text-3xl sm:text-4xl">
+                Live <span className="gold">Events</span>
+              </h1>
+              <p className="body-copy mt-2 text-sm">
+                Select an event to view its phase and participate.
+              </p>
+            </div>
+            {totalEvents === 0 ? (
+              <div className="ornate-frame p-8 text-center">
+                <p className="body-copy text-sm text-cream/50">No events on-chain yet.</p>
+                <button type="button" className="btn btn-ghost mt-4" onClick={() => refetchEventCount()}>Refresh</button>
+              </div>
+            ) : (
+              <div className="grid gap-3 sm:grid-cols-2">
+                {Array.from({ length: totalEvents }, (_, i) => {
+                  const id = i + 1;
+                  const phaseNum = lobbyPhases?.[i]?.result !== undefined ? Number(lobbyPhases[i].result) : undefined;
+                  const phaseName = phaseNum !== undefined ? PHASES[phaseNum] : "…";
+                  const ui = contractToUi(phaseName);
+                  const stepIdx = PHASE_STEPS.findIndex((p) => p.key === ui);
+                  return (
+                    <button
+                      key={id}
+                      type="button"
+                      onClick={() => { setEventId(id); setSelectedWord(null); }}
+                      style={{
+                        textAlign: "left",
+                        background: "linear-gradient(160deg, #1a1005 0%, #0e0a04 100%)",
+                        border: "1px solid rgba(217,164,65,0.3)",
+                        borderRadius: 6,
+                        padding: "1rem 1.2rem",
+                        cursor: "pointer",
+                        transition: "border-color 0.2s, box-shadow 0.2s",
+                      }}
+                      onMouseEnter={(e) => {
+                        (e.currentTarget as HTMLButtonElement).style.borderColor = "rgba(217,164,65,0.65)";
+                        (e.currentTarget as HTMLButtonElement).style.boxShadow = "0 0 16px rgba(217,164,65,0.12)";
+                      }}
+                      onMouseLeave={(e) => {
+                        (e.currentTarget as HTMLButtonElement).style.borderColor = "rgba(217,164,65,0.3)";
+                        (e.currentTarget as HTMLButtonElement).style.boxShadow = "";
+                      }}
+                    >
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.6rem" }}>
+                        <span className="kicker" style={{ color: "#e9b95c" }}>Event #{id}</span>
+                        <span className="kicker" style={{
+                          background: ui === "settled" ? "rgba(43,100,90,0.3)" : "rgba(43,227,212,0.08)",
+                          color: ui === "settled" ? "#2be3d4" : "#9c8a64",
+                          border: "1px solid rgba(43,227,212,0.2)",
+                          borderRadius: 3,
+                          padding: "0.1rem 0.5rem",
+                          fontSize: "0.58rem",
+                        }}>
+                          {phaseName}
+                        </span>
+                      </div>
+                      <div style={{ display: "flex", gap: 4, marginTop: 4 }}>
+                        {PHASE_STEPS.map((p, pi) => (
+                          <div key={p.key} style={{
+                            flex: 1,
+                            height: 3,
+                            borderRadius: 2,
+                            background: pi < stepIdx ? "#2be3d4" : pi === stepIdx ? "#e9b95c" : "rgba(255,255,255,0.08)",
+                          }} />
+                        ))}
+                      </div>
+                      <p style={{ fontSize: "0.6rem", color: "rgba(205,187,150,0.4)", marginTop: "0.5rem", fontFamily: "var(--font-ui)", letterSpacing: "0.05em" }}>
+                        {PHASE_STEPS[stepIdx]?.label ?? "—"} phase · tap to enter →
+                      </p>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+            <div className="mt-6 text-center">
+              <Link href="/play" className="text-xs text-cream/30 hover:text-cream/60 underline transition">
+                ← Try demo mode
+              </Link>
+            </div>
+          </div>
+        )}
+
         {/* ═══ EVENT (None / default) ═══ */}
-        {isConnected && uiPhase === "event" && (
+        {isConnected && eventId > 0 && uiPhase === "event" && (
           <div className="mx-auto max-w-xl ornate-frame p-6 sm:p-8">
             <p className="kicker text-center mb-2">On-Chain · Mantle Sepolia</p>
             <h1 className="h-display text-center text-3xl sm:text-4xl mb-6">
@@ -340,7 +459,7 @@ export default function OnchainGame() {
         )}
 
         {/* ═══ WORDS (Submission phase) ═══ */}
-        {isConnected && uiPhase === "words" && (
+        {isConnected && eventId > 0 && uiPhase === "words" && (
           <div className="mx-auto max-w-xl space-y-5">
             <div className="ornate-frame p-6 sm:p-8">
               <h1 className="h-display text-center text-3xl sm:text-4xl">
@@ -409,7 +528,7 @@ export default function OnchainGame() {
         )}
 
         {/* ═══ CURATE (Founder phase — AI assembling card) ═══ */}
-        {isConnected && uiPhase === "curate" && (
+        {isConnected && eventId > 0 && uiPhase === "curate" && (
           <div className="mx-auto max-w-2xl ornate-frame p-6 sm:p-8">
             <p className="kicker text-center mb-2">AI Oracle is working</p>
             <h1 className="h-display text-center text-3xl sm:text-4xl mb-6">
@@ -464,7 +583,7 @@ export default function OnchainGame() {
         )}
 
         {/* ═══ MARKET (Market phase) ═══ */}
-        {isConnected && uiPhase === "market" && (
+        {isConnected && eventId > 0 && uiPhase === "market" && (
           <div className="grid items-start gap-6 lg:grid-cols-[1.1fr_0.9fr]">
             {/* Left: bingo card */}
             <div className="ornate-frame">
@@ -628,7 +747,7 @@ export default function OnchainGame() {
         )}
 
         {/* ═══ LIVE (Live phase) ═══ */}
-        {isConnected && uiPhase === "live" && (
+        {isConnected && eventId > 0 && uiPhase === "live" && (
           <div className="grid items-start gap-6 lg:grid-cols-[1.1fr_0.9fr]">
             {/* Left: card */}
             <div className="ornate-frame">
@@ -710,7 +829,7 @@ export default function OnchainGame() {
         )}
 
         {/* ═══ SETTLED (Dispute / Settled phase) ═══ */}
-        {isConnected && uiPhase === "settled" && (
+        {isConnected && eventId > 0 && uiPhase === "settled" && (
           <div className="mx-auto max-w-xl space-y-5">
             <div className="ornate-frame p-6 sm:p-8">
               <p className="kicker text-center mb-2">
