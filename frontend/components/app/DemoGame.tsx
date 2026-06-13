@@ -19,7 +19,6 @@ import {
   AI_CURATION_LOG,
   BASE_POOL,
   DEMO_EVENT,
-  IPO_MOCK_ORDERS,
   ORACLE_SCRIPT,
   RIVALS,
   SPEECH_TEXT,
@@ -29,7 +28,7 @@ import {
   type OracleEvent,
 } from "./data";
 
-type Phase = "event" | "words" | "curate" | "ipo" | "market" | "live" | "settled";
+type Phase = "event" | "words" | "curate" | "market" | "live" | "settled";
 
 type FeedEntry = {
   id: number;
@@ -39,18 +38,24 @@ type FeedEntry = {
   conf: number;
 };
 
-type IpoOrder = {
-  player: string;
+type IpoBid = {
+  id: number;
   word: string;
-  amount: number;
-  price: number;
+  bidPrice: number; // max price willing to pay
+  amount: number;   // USDC locked
+};
+
+type IpoResult = IpoBid & {
+  openingPrice: number;
+  inCard: boolean;
+  priceOk: boolean;
+  allocated: boolean;
 };
 
 const PHASE_STEPS: { key: Phase; label: string }[] = [
   { key: "event", label: "Event" },
   { key: "words", label: "Submit" },
   { key: "curate", label: "Curate" },
-  { key: "ipo", label: "IPO" },
   { key: "market", label: "Trade" },
   { key: "live", label: "Live" },
   { key: "settled", label: "Claim" },
@@ -90,15 +95,28 @@ export default function DemoGame() {
   const [banner, setBanner] = useState<string | null>(null);
   const [claimed, setClaimed] = useState(false);
 
-  // ── phase-specific state ──
+  // ── event creation ──
   const [createStep, setCreateStep] = useState(0);
+
+  // ── IPO pre-orders (placed during words phase) ──
+  const [ipoBids, setIpoBids] = useState<IpoBid[]>([]);
+  const [bidWord, setBidWord] = useState("");
+  const [bidPrice, setBidPrice] = useState("0.50");
+  const [bidAmount, setBidAmount] = useState("5");
+  const [ipoResults, setIpoResults] = useState<IpoResult[]>([]);
+  const [ipoSettleStep, setIpoSettleStep] = useState(0);
+
+  // ── curation ──
   const [curatStep, setCuratStep] = useState(0);
-  const [ipoOrders, setIpoOrders] = useState<IpoOrder[]>([]);
+
+  // ── market prices + fluctuation ──
   const [prices, setPrices] = useState<Record<string, number>>(
     () => Object.fromEntries(BASE_POOL.map((w) => [w.word, w.price]))
   );
-  const [transcriptChars, setTranscriptChars] = useState(0);
   const [priceFlash, setPriceFlash] = useState<string | null>(null);
+
+  // ── live transcript ──
+  const [transcriptChars, setTranscriptChars] = useState(0);
 
   // ── derived ──
   const founderWords = useMemo(
@@ -107,6 +125,7 @@ export default function DemoGame() {
   );
   const founderSeeds = useMemo(() => new Set(founderWords), [founderWords]);
   const submissions = curations.filter((c) => c.status !== "rejected").length;
+  const ipoLocked = ipoBids.reduce((s, b) => s + b.amount, 0);
 
   const script = useMemo<OracleEvent[]>(() => {
     return ORACLE_SCRIPT.flatMap((e) => {
@@ -122,13 +141,12 @@ export default function DemoGame() {
     });
   }, [founderWords]);
 
-  /* curation log built from the actual pool so user words show up correctly */
   const curatLog = useMemo(() => {
     return pool.map((w) => {
       if (w.isUserWord) {
         return {
           word: w.word,
-          reason: `Community submission — Word Founder position secured ✦`,
+          reason: "Community submission — Word Founder position secured ✦",
           prob: Math.round(w.aiProb * 100),
           isUser: true,
         };
@@ -149,49 +167,58 @@ export default function DemoGame() {
 
   // ── Effects ──
 
-  /* event creation animation */
   useEffect(() => {
-    if (phase !== "event") return;
-    if (createStep >= CREATE_STEPS.length) return;
+    if (phase !== "event" || createStep >= CREATE_STEPS.length) return;
     const t = setTimeout(() => setCreateStep((s) => s + 1), 680);
     return () => clearTimeout(t);
   }, [phase, createStep]);
 
-  /* curation step animation */
   useEffect(() => {
-    if (phase !== "curate") return;
-    if (curatStep >= curatLog.length + 1) return;
-    const delay = curatStep < curatLog.length ? 350 : 700;
+    if (phase !== "curate" || curatStep >= curatLog.length + 1) return;
+    const delay = curatStep < curatLog.length ? 340 : 700;
     const t = setTimeout(() => setCuratStep((s) => s + 1), delay);
     return () => clearTimeout(t);
   }, [phase, curatStep, curatLog.length]);
 
   /* build card once curation finishes */
   useEffect(() => {
-    if (phase !== "curate") return;
-    if (curatStep === curatLog.length + 1 && !card) {
-      setCard(makeCard(pool.map((w) => w.word), Date.now() & 0xffffffff));
-    }
+    if (phase !== "curate" || curatStep !== curatLog.length + 1 || card) return;
+    setCard(makeCard(pool.map((w) => w.word), Date.now() & 0xffffffff));
   }, [phase, curatStep, curatLog.length, card, pool]);
 
-  /* IPO mock order stream */
+  /* compute IPO settlement once card is ready */
   useEffect(() => {
-    if (phase !== "ipo") return;
-    setIpoOrders([]);
-    const timers = IPO_MOCK_ORDERS.map((order) =>
-      setTimeout(() => {
-        setPrices((prev) => {
-          const cur = prev[order.word] ?? 0.5;
-          const newPrice = +(cur * (1 + Math.random() * 0.09 - 0.02)).toFixed(3);
-          setIpoOrders((po) => [...po, { ...order, price: newPrice }]);
-          return { ...prev, [order.word]: newPrice };
-        });
-      }, order.delay)
-    );
-    return () => timers.forEach(clearTimeout);
-  }, [phase]);
+    if (phase !== "curate" || !card || ipoResults.length > 0) return;
+    if (ipoBids.length === 0) return;
 
-  /* market price fluctuation */
+    const results: IpoResult[] = ipoBids.map((bid) => {
+      const wordInfo = pool.find((w) => w.word === bid.word);
+      const openingPrice = wordInfo?.price ?? 0.5;
+      const inCard = card.includes(bid.word);
+      const priceOk = bid.bidPrice >= openingPrice;
+      const allocated = inCard && priceOk;
+      return { ...bid, openingPrice, inCard, priceOk, allocated };
+    });
+    setIpoResults(results);
+    setIpoSettleStep(0);
+  }, [phase, card, ipoBids, pool, ipoResults.length]);
+
+  /* animate IPO settlement step by step */
+  useEffect(() => {
+    if (ipoResults.length === 0 || ipoSettleStep >= ipoResults.length) return;
+    const t = setTimeout(() => {
+      const result = ipoResults[ipoSettleStep];
+      if (result.allocated) {
+        setPositions((p) => ({ ...p, [result.word]: (p[result.word] ?? 0) + result.amount }));
+        setSpent((s) => Math.round((s + result.amount) * 100) / 100);
+      } else {
+        setBalance((b) => Math.round((b + result.amount) * 100) / 100);
+      }
+      setIpoSettleStep((s) => s + 1);
+    }, 900);
+    return () => clearTimeout(t);
+  }, [ipoResults, ipoSettleStep]);
+
   useEffect(() => {
     if (phase !== "market") return;
     const t = setInterval(() => {
@@ -213,25 +240,22 @@ export default function DemoGame() {
     return () => clearInterval(t);
   }, [phase]);
 
-  /* clear price flash */
   useEffect(() => {
     if (!priceFlash) return;
     const t = setTimeout(() => setPriceFlash(null), 1800);
     return () => clearTimeout(t);
   }, [priceFlash]);
 
-  /* transcript typewriter */
   useEffect(() => {
-    if (phase !== "live") return;
-    if (transcriptChars >= SPEECH_TEXT.length) return;
+    if (phase !== "live" || transcriptChars >= SPEECH_TEXT.length) return;
     const charsPerTick = Math.ceil(speed * 3);
-    const t = setTimeout(() => {
-      setTranscriptChars((c) => Math.min(c + charsPerTick, SPEECH_TEXT.length));
-    }, 55 / speed);
+    const t = setTimeout(
+      () => setTranscriptChars((c) => Math.min(c + charsPerTick, SPEECH_TEXT.length)),
+      55 / speed
+    );
     return () => clearTimeout(t);
   }, [phase, transcriptChars, speed]);
 
-  /* oracle simulation */
   useEffect(() => {
     if (phase !== "live") return;
     if (eventIdx >= script.length) {
@@ -241,13 +265,7 @@ export default function DemoGame() {
     const e = script[eventIdx];
     const t = setTimeout(() => {
       setFeed((f) => [
-        {
-          id: eventIdx,
-          word: e.word as string | null,
-          heard: e.heard,
-          snippet: e.snippet,
-          conf: e.conf,
-        },
+        { id: eventIdx, word: e.word as string | null, heard: e.heard, snippet: e.snippet, conf: e.conf },
         ...f,
       ]);
       if (e.word) {
@@ -270,14 +288,12 @@ export default function DemoGame() {
     return () => clearTimeout(t);
   }, [phase, eventIdx, speed, script, card, bonusKeys, validated]);
 
-  /* live timer */
   useEffect(() => {
     if (phase !== "live") return;
     const t = setInterval(() => setElapsed((s) => s + speed), 1000);
     return () => clearInterval(t);
   }, [phase, speed]);
 
-  /* banner auto-hide */
   useEffect(() => {
     if (!banner) return;
     const t = setTimeout(() => setBanner(null), 3200);
@@ -298,25 +314,51 @@ export default function DemoGame() {
           { word: result.word, ...USER_WORD_INFO, isUserWord: true },
         ];
       });
+      const removed = SWAP_ORDER[pool.filter((w) => w.isUserWord).length];
+      const affected = ipoBids.filter((b) => b.word === removed);
+      if (affected.length > 0) {
+        const refundTotal = affected.reduce((s, b) => s + b.amount, 0);
+        setIpoBids((prev) => prev.filter((b) => b.word !== removed));
+        setBalance((bl) => Math.round((bl + refundTotal) * 100) / 100);
+      }
     }
     setWordInput("");
   }
 
+  function placeIpoBid() {
+    const word = bidWord.trim();
+    const price = parseFloat(bidPrice);
+    const amount = parseFloat(bidAmount);
+    if (!word || isNaN(price) || price <= 0 || isNaN(amount) || amount <= 0) return;
+    if (amount > balance - ipoLocked) return;
+    if (!pool.find((w) => w.word.toLowerCase() === word.toLowerCase())) return;
+    const canonical = pool.find((w) => w.word.toLowerCase() === word.toLowerCase())!.word;
+    setIpoBids((prev) => [
+      ...prev,
+      { id: Date.now(), word: canonical, bidPrice: price, amount },
+    ]);
+    setBalance((b) => Math.round((b - amount) * 100) / 100);
+  }
+
+  function cancelIpoBid(id: number) {
+    const bid = ipoBids.find((b) => b.id === id);
+    if (!bid) return;
+    setIpoBids((prev) => prev.filter((b) => b.id !== id));
+    setBalance((b) => Math.round((b + bid.amount) * 100) / 100);
+  }
+
   function buy(word: string, amount: number) {
-    if (phase !== "market" && phase !== "ipo") return;
+    if (phase !== "market") return;
     const amt = Math.min(amount, balance);
     if (amt <= 0) return;
     setPositions((p) => ({ ...p, [word]: (p[word] ?? 0) + amt }));
     setBalance((b) => Math.round((b - amt) * 100) / 100);
     setSpent((s) => Math.round((s + amt) * 100) / 100);
-    setPrices((prev) => ({
-      ...prev,
-      [word]: Math.min(3.0, +(prev[word] * 1.038).toFixed(3)),
-    }));
+    setPrices((prev) => ({ ...prev, [word]: Math.min(3.0, +(prev[word] * 1.038).toFixed(3)) }));
   }
 
   function sell(word: string, amount: number) {
-    if (phase !== "market" && phase !== "ipo") return;
+    if (phase !== "market") return;
     const pos = positions[word] ?? 0;
     const sellAmt = Math.min(amount, pos);
     if (sellAmt <= 0) return;
@@ -324,10 +366,7 @@ export default function DemoGame() {
     setPositions((p) => ({ ...p, [word]: Math.max(0, pos - sellAmt) }));
     setBalance((b) => Math.round((b + refund) * 100) / 100);
     setSpent((s) => Math.round(Math.max(0, s - sellAmt) * 100) / 100);
-    setPrices((prev) => ({
-      ...prev,
-      [word]: Math.max(0.1, +(prev[word] * 0.964).toFixed(3)),
-    }));
+    setPrices((prev) => ({ ...prev, [word]: Math.max(0.1, +(prev[word] * 0.964).toFixed(3)) }));
   }
 
   const rewardRows = useMemo(
@@ -364,18 +403,22 @@ export default function DemoGame() {
     setElapsed(0);
     setClaimed(false);
     setCreateStep(0);
+    setIpoBids([]);
+    setBidWord("");
+    setBidPrice("0.50");
+    setBidAmount("5");
+    setIpoResults([]);
+    setIpoSettleStep(0);
     setCuratStep(0);
-    setIpoOrders([]);
     setPrices(Object.fromEntries(BASE_POOL.map((w) => [w.word, w.price])));
-    setTranscriptChars(0);
     setPriceFlash(null);
+    setTranscriptChars(0);
     setBanner(null);
   }
 
   // ── Render ──
   return (
     <div className="app-bg">
-      {/* topbar */}
       <header className="topbar">
         <div className="mx-auto flex h-11 max-w-6xl items-center justify-between gap-4 px-4">
           <Link href="/" className="wordmark text-lg" aria-label="Back to home">
@@ -385,9 +428,7 @@ export default function DemoGame() {
             {PHASE_STEPS.map((p, i) => (
               <span
                 key={p.key}
-                className={`phase-step ${i === phaseIdx ? "active" : ""} ${
-                  i < phaseIdx ? "done" : ""
-                }`}
+                className={`phase-step ${i === phaseIdx ? "active" : ""} ${i < phaseIdx ? "done" : ""}`}
               >
                 <span className="p-rune">{i < phaseIdx ? "✓" : i + 1}</span>
                 {p.label}
@@ -403,7 +444,7 @@ export default function DemoGame() {
           Interactive demo · simulated oracle · mirrors exact on-chain flow · no real funds required
         </p>
 
-        {/* ═══ Phase: EVENT CREATION ═══ */}
+        {/* ═══ EVENT CREATION ═══ */}
         {phase === "event" && (
           <div className="mx-auto max-w-xl">
             <div className="ornate-frame p-6 sm:p-8">
@@ -411,13 +452,12 @@ export default function DemoGame() {
               <h1 className="h-display text-center text-3xl sm:text-4xl mb-7">
                 Creating <span className="gold">Live Event</span>
               </h1>
-
               <ul className="space-y-3 mb-6 min-h-[200px]">
                 {CREATE_STEPS.map((step, i) => (
                   <li
                     key={i}
                     className={`flex items-center gap-3 transition-all duration-500 ${
-                      i < createStep ? "opacity-100 translate-y-0" : "opacity-0 translate-y-2"
+                      i < createStep ? "opacity-100" : "opacity-0 translate-y-2"
                     }`}
                   >
                     <span
@@ -436,12 +476,10 @@ export default function DemoGame() {
                 ))}
                 {createStep < CREATE_STEPS.length && (
                   <li className="flex items-center gap-2 text-xs text-cream/30">
-                    <span className="animate-pulse">●</span>
-                    Processing…
+                    <span className="animate-pulse">●</span> Processing…
                   </li>
                 )}
               </ul>
-
               {createStep >= CREATE_STEPS.length && (
                 <>
                   <dl className="space-y-2 border-t border-gold/15 pt-5">
@@ -465,11 +503,7 @@ export default function DemoGame() {
                     {STARTING_BALANCE} demo USDC
                   </p>
                   <div className="mt-6 text-center">
-                    <button
-                      type="button"
-                      className="btn btn-gold"
-                      onClick={() => setPhase("words")}
-                    >
+                    <button type="button" className="btn btn-gold" onClick={() => setPhase("words")}>
                       Join Event →
                     </button>
                   </div>
@@ -479,25 +513,23 @@ export default function DemoGame() {
           </div>
         )}
 
-        {/* ═══ Phase: WORD SUBMISSION ═══ */}
+        {/* ═══ WORD SUBMISSION + IPO PRE-ORDER ═══ */}
         {phase === "words" && (
-          <div className="mx-auto max-w-xl">
+          <div className="mx-auto max-w-xl space-y-5">
+            {/* Word submission */}
             <div className="ornate-frame p-6 sm:p-8">
               <h1 className="h-display text-center text-3xl sm:text-4xl">
                 Submit your <span className="gold">words</span>
               </h1>
               <p className="body-copy mt-4 text-center text-base">
-                Predict up to 3 words the speaker will say. A brand-new word that
-                survives AI curation makes you its{" "}
-                <strong className="text-gold-bright">Word Founder</strong> — you get
-                a free position at base price.
+                Predict up to 3 words the speaker will say. A brand-new word makes
+                you its <strong className="text-gold-bright">Word Founder</strong> — free
+                position at base price.
               </p>
               <div className="mt-6 flex gap-3">
                 <input
                   className="input-dark flex-1"
-                  placeholder={
-                    submissions >= 3 ? "3 / 3 submitted" : "e.g. Liquidity"
-                  }
+                  placeholder={submissions >= 3 ? "3 / 3 submitted" : "e.g. Liquidity"}
                   value={wordInput}
                   maxLength={24}
                   disabled={submissions >= 3}
@@ -518,44 +550,159 @@ export default function DemoGame() {
                 {curations.map((c, i) => (
                   <li key={i} className={`curation ${c.status}`}>
                     {c.status === "accepted" && (
-                      <>
-                        <strong>{c.word}</strong> — accepted into the pool. You are
-                        the Founder: 1 free seed share is yours. ✦
-                      </>
+                      <><strong>{c.word}</strong> — accepted. You are the Founder: 1 free seed share. ✦</>
                     )}
                     {c.status === "merged" && (
-                      <>
-                        <strong>{c.word}</strong> — {c.reason}
-                      </>
+                      <><strong>{c.word}</strong> — {c.reason}</>
                     )}
                     {c.status === "rejected" && (
-                      <>
-                        <strong>"{c.input}"</strong> rejected — {c.reason}
-                      </>
+                      <><strong>"{c.input}"</strong> rejected — {c.reason}</>
                     )}
                   </li>
                 ))}
               </ul>
               <p className="kicker mt-5 text-center">{submissions} / 3 submitted</p>
-              <div className="mt-6 text-center">
-                <button
-                  type="button"
-                  className="btn btn-gold"
-                  onClick={() => {
-                    setCuratStep(0);
-                    setPhase("curate");
-                  }}
-                >
-                  {submissions > 0
-                    ? "Continue — AI Curates Card →"
-                    : "Skip — Let AI Choose →"}
-                </button>
+            </div>
+
+            {/* IPO Pre-order */}
+            <div className="ornate-frame p-6 sm:p-8">
+              <p className="kicker mb-1">Optional — IPO Pre-Order</p>
+              <h2 className="h-display text-2xl mb-3">
+                Book a <span className="gold">position</span> now
+              </h2>
+              <p className="body-copy text-sm mb-4">
+                Like a stock IPO — deposit before the card is formed. If your word
+                ends up on the card{" "}
+                <strong className="text-cream/90">and</strong> your bid price ≥ the
+                AI&apos;s opening price, your position is confirmed. Otherwise your
+                deposit is fully refunded.
+              </p>
+
+              <div className="grid grid-cols-[1fr_auto_auto] gap-2 items-end">
+                <div>
+                  <label className="kicker block mb-1">Word</label>
+                  <input
+                    className="input-dark w-full text-sm"
+                    style={{ padding: "0.6rem 0.8rem" }}
+                    placeholder="e.g. AI"
+                    list="pool-words"
+                    value={bidWord}
+                    onChange={(e) => setBidWord(e.target.value)}
+                  />
+                  <datalist id="pool-words">
+                    {pool.map((w) => <option key={w.word} value={w.word} />)}
+                  </datalist>
+                </div>
+                <div>
+                  <label className="kicker block mb-1">Bid price</label>
+                  <input
+                    type="number"
+                    step="0.05"
+                    min="0.01"
+                    className="input-dark w-20 text-sm text-center"
+                    style={{ padding: "0.6rem 0.5rem" }}
+                    value={bidPrice}
+                    onChange={(e) => setBidPrice(e.target.value)}
+                  />
+                </div>
+                <div>
+                  <label className="kicker block mb-1">USDC</label>
+                  <input
+                    type="number"
+                    step="1"
+                    min="1"
+                    className="input-dark w-20 text-sm text-center"
+                    style={{ padding: "0.6rem 0.5rem" }}
+                    value={bidAmount}
+                    onChange={(e) => setBidAmount(e.target.value)}
+                  />
+                </div>
               </div>
+
+              {/* hint: show opening price for chosen word */}
+              {bidWord && (() => {
+                const w = pool.find((p) => p.word.toLowerCase() === bidWord.toLowerCase());
+                if (!w) return (
+                  <p className="text-xs text-amber-400/70 mt-1">
+                    "{bidWord}" not in current pool — check spelling
+                  </p>
+                );
+                return (
+                  <p className="text-xs text-cream/40 mt-1">
+                    AI opening price for <strong className="text-cream/70">{w.word}</strong>:{" "}
+                    <strong className="text-gold">{w.price} USDC</strong> ·{" "}
+                    {parseFloat(bidPrice) >= w.price ? (
+                      <span style={{ color: "#2be3d4" }}>bid OK — will be allocated if on card ✓</span>
+                    ) : (
+                      <span className="text-amber-400">bid too low — will be refunded ✗</span>
+                    )}
+                  </p>
+                );
+              })()}
+
+              <button
+                type="button"
+                className="btn btn-gold mt-4 w-full"
+                onClick={placeIpoBid}
+                disabled={
+                  !bidWord ||
+                  parseFloat(bidAmount) > balance - ipoLocked ||
+                  balance - ipoLocked < 1
+                }
+              >
+                Place IPO Order · Lock {bidAmount} USDC
+              </button>
+
+              <p className="text-xs text-cream/30 mt-2 text-center">
+                Available to lock: {fmt(balance - ipoLocked)} USDC · Total locked: {fmt(ipoLocked)} USDC
+              </p>
+
+              {ipoBids.length > 0 && (
+                <div className="mt-4 border-t border-gold/15 pt-3">
+                  <p className="kicker mb-2">Your pre-orders ({ipoBids.length})</p>
+                  <ul className="space-y-1.5">
+                    {ipoBids.map((b) => {
+                      const w = pool.find((p) => p.word === b.word);
+                      const ok = w && b.bidPrice >= w.price;
+                      return (
+                        <li key={b.id} className="flex items-center gap-2">
+                          <span
+                            className="text-xs shrink-0"
+                            style={{ color: ok ? "#2be3d4" : "#e07a4a" }}
+                          >
+                            {ok ? "✓" : "!"}
+                          </span>
+                          <span className="text-xs flex-1 text-cream/80">
+                            <strong>{b.word}</strong> · bid {b.bidPrice} · {fmt(b.amount)} USDC locked
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => cancelIpoBid(b.id)}
+                            className="text-[10px] text-cream/30 hover:text-cream/70 transition underline shrink-0"
+                          >
+                            cancel
+                          </button>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </div>
+              )}
+            </div>
+
+            <div className="text-center">
+              <button
+                type="button"
+                className="btn btn-gold"
+                onClick={() => { setCuratStep(0); setPhase("curate"); }}
+              >
+                {submissions > 0 ? "Continue — AI Curates Card →" : "Skip — Let AI Choose →"}
+              </button>
             </div>
           </div>
         )}
 
-        {/* ═══ Phase: AI CURATION ═══ */}
+        {/* ═══ AI CURATION + IPO SETTLEMENT ═══ */}
         {phase === "curate" && (
           <div className="mx-auto max-w-2xl">
             <div className="ornate-frame p-6 sm:p-8">
@@ -564,11 +711,11 @@ export default function DemoGame() {
                 Assembling <span className="gold">Bingo Card</span>
               </h1>
 
-              <div className="space-y-1.5 max-h-72 overflow-y-auto pr-1 scrollbar-thin">
-                {curatLog.slice(0, curatStep).map((entry, i) => (
+              <div className="space-y-1.5 max-h-64 overflow-y-auto pr-1">
+                {curatLog.slice(0, curatStep).map((entry) => (
                   <div
                     key={entry.word}
-                    className={`flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-all duration-300 ${
+                    className={`flex items-center gap-3 rounded-lg px-3 py-2 text-sm ${
                       entry.isUser
                         ? "border border-gold/40 bg-gold/5"
                         : "border border-white/5 bg-white/[0.02]"
@@ -576,264 +723,125 @@ export default function DemoGame() {
                   >
                     <span
                       className={`shrink-0 w-8 text-right text-xs font-bold ${
-                        entry.prob >= 70
-                          ? "text-teal-400"
-                          : entry.prob >= 45
-                            ? "text-gold"
-                            : "text-cream/40"
+                        entry.prob >= 70 ? "text-teal-400" : entry.prob >= 45 ? "text-gold" : "text-cream/40"
                       }`}
                     >
                       {entry.prob}%
                     </span>
-                    <span className="font-bold text-cream min-w-[80px]">{entry.word}</span>
-                    <span className="text-cream/50 text-xs italic truncate flex-1">
-                      {entry.reason}
-                    </span>
-                    {entry.isUser && (
-                      <span className="founder-tag shrink-0">✦ Yours</span>
-                    )}
+                    <span className="font-bold text-cream min-w-[72px]">{entry.word}</span>
+                    <span className="text-cream/50 text-xs italic truncate flex-1">{entry.reason}</span>
+                    {entry.isUser && <span className="founder-tag shrink-0">✦ Yours</span>}
                     <span className="text-teal-400 shrink-0 text-xs font-bold">✓</span>
                   </div>
                 ))}
                 {curatStep <= curatLog.length && curatStep > 0 && (
                   <div className="flex items-center gap-2 px-3 py-2 text-xs text-cream/30">
-                    <span className="animate-pulse">●</span>
-                    Analyzing next word…
+                    <span className="animate-pulse">●</span> Analyzing next word…
                   </div>
                 )}
               </div>
 
+              {/* Card assembled */}
               {curatStep > curatLog.length && card && (
                 <div className="mt-6 border-t border-gold/15 pt-5">
-                  <p className="kicker text-center mb-4">
-                    Bingo card assembled — {card.length} tiles
-                  </p>
+                  <p className="kicker text-center mb-4">Card assembled — 25 tiles</p>
                   <div className="bingo-board">
                     {card.map((w, i) => (
                       <div
                         key={i}
-                        className={`bingo-tile ${w === FREE ? "free" : ""} ${
-                          founderSeeds.has(w) ? "sel" : ""
-                        }`}
+                        className={`bingo-tile ${w === FREE ? "free" : ""} ${founderSeeds.has(w) ? "sel" : ""}`}
                       >
                         {w}
-                        {founderSeeds.has(w) && (
-                          <span className="owned-chip">✦</span>
-                        )}
+                        {founderSeeds.has(w) && <span className="owned-chip">✦</span>}
                       </div>
                     ))}
                   </div>
-                  {founderSeeds.size > 0 && (
-                    <p className="body-copy text-center text-sm mt-3 italic">
-                      Gold border = your submitted words · free founder share locked in
-                    </p>
-                  )}
-                  <div className="mt-6 text-center">
-                    <button
-                      type="button"
-                      className="btn btn-gold"
-                      onClick={() => setPhase("ipo")}
-                    >
-                      Enter IPO Trading Window →
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-        )}
 
-        {/* ═══ Phase: IPO ═══ */}
-        {phase === "ipo" && card && (
-          <div className="grid items-start gap-6 lg:grid-cols-[1.1fr_0.9fr]">
-            {/* card */}
-            <div className="ornate-frame">
-              <div className="frame-screen board-scene px-2 pb-4 pt-4 sm:px-4 sm:pb-5">
-                <div className="mb-3 flex flex-wrap items-center justify-center gap-2 sm:justify-between">
-                  <span className="hud-plate">
-                    <span className="dot gold" aria-hidden="true" />
-                    {who} · {fmt(balance)} USDC
-                  </span>
-                  <span className="hud-plate hidden xl:inline-flex">
-                    {DEMO_EVENT.name}
-                  </span>
-                  <span className="hud-plate">
-                    <span className="dot gold" aria-hidden="true" />
-                    IPO Window · Open
-                  </span>
-                </div>
-
-                <div className="bingo-board">
-                  {card.map((w) => {
-                    const free = w === FREE;
-                    const own = (positions[w] ?? 0) > 0 || founderSeeds.has(w);
-                    return (
-                      <button
-                        type="button"
-                        key={w}
-                        className={`bingo-tile ${free ? "free" : ""} ${
-                          selected === w ? "sel" : ""
-                        }`}
-                        onClick={() => !free && setSelected(w)}
-                        disabled={free}
-                        aria-label={free ? "Free tile" : `Select ${w}`}
-                      >
-                        {w}
-                        {own && !free && (
-                          <span className="owned-chip" aria-hidden="true">
-                            {founderSeeds.has(w) && (positions[w] ?? 0) === 0
-                              ? "✦"
-                              : fmt(positions[w] ?? 0)}
-                          </span>
+                  {/* IPO settlement results */}
+                  {ipoBids.length > 0 && (
+                    <div className="mt-6">
+                      <p className="kicker mb-3">Settling IPO Pre-orders</p>
+                      <ul className="space-y-2">
+                        {ipoResults.slice(0, ipoSettleStep).map((r, i) => (
+                          <li
+                            key={i}
+                            className={`flex items-start gap-3 rounded-lg px-3 py-2.5 text-sm border ${
+                              r.allocated
+                                ? "border-teal-800/50 bg-teal-950/30"
+                                : "border-amber-900/40 bg-amber-950/20"
+                            }`}
+                          >
+                            <span
+                              className={`shrink-0 mt-0.5 text-base font-bold ${
+                                r.allocated ? "text-teal-400" : "text-amber-400"
+                              }`}
+                            >
+                              {r.allocated ? "✓" : "✗"}
+                            </span>
+                            <div className="flex-1 text-xs leading-relaxed">
+                              <strong className="text-cream">{r.word}</strong>
+                              {" · "}
+                              {r.inCard ? "in card ✓" : "not in card ✗"}
+                              {r.inCard && (
+                                <>
+                                  {" · "}
+                                  bid {r.bidPrice} {r.priceOk ? "≥" : "<"} opening {r.openingPrice}{" "}
+                                  {r.priceOk ? "✓" : "✗"}
+                                </>
+                              )}
+                            </div>
+                            <span
+                              className={`shrink-0 text-xs font-bold ${
+                                r.allocated ? "text-teal-300" : "text-amber-300"
+                              }`}
+                            >
+                              {r.allocated
+                                ? `+${fmt(r.amount)} staked`
+                                : `${fmt(r.amount)} refunded`}
+                            </span>
+                          </li>
+                        ))}
+                        {ipoSettleStep < ipoResults.length && (
+                          <li className="flex items-center gap-2 text-xs text-cream/30 px-3">
+                            <span className="animate-pulse">●</span> Settling…
+                          </li>
                         )}
-                      </button>
-                    );
-                  })}
-                </div>
-                <p className="kicker mt-3 text-center">Tap a tile to bid at IPO price</p>
-              </div>
-            </div>
-
-            {/* IPO panel */}
-            <div className="game-panel">
-              <div className="flex items-center justify-between">
-                <h2 className="step-title text-sm">Founder IPO Window</h2>
-                <span
-                  className="kicker"
-                  style={{ color: "#2be3d4", textShadow: "0 0 10px rgba(0,198,184,0.6)" }}
-                >
-                  OPEN
-                </span>
-              </div>
-              <p className="body-copy text-sm mt-1">
-                Like an IPO — place bids before open market. Founders get their
-                free share automatically at base price.
-              </p>
-
-              {founderSeeds.size > 0 && (
-                <div className="mt-3 rounded-lg border border-gold/30 bg-gold/5 px-3 py-3">
-                  <p className="step-title text-xs text-gold-bright mb-1.5">
-                    ✦ Your Founder Positions — Auto-Allocated
-                  </p>
-                  {[...founderSeeds].map((w) => (
-                    <p key={w} className="text-xs text-cream/70">
-                      {w} · 1 free share @ base price (locked in)
-                    </p>
-                  ))}
-                </div>
-              )}
-
-              <div className="mt-4 border-t border-gold/15 pt-3">
-                <p className="kicker mb-2">Live Order Book</p>
-                <ul className="space-y-1.5 max-h-44 overflow-y-auto">
-                  {ipoOrders.length === 0 && (
-                    <li className="text-xs text-cream/30 italic px-1">
-                      Waiting for first bids…
-                    </li>
+                        {ipoSettleStep === 0 && ipoResults.length > 0 && (
+                          <li className="flex items-center gap-2 text-xs text-cream/30 px-3">
+                            <span className="animate-pulse">●</span> Matching orders to card…
+                          </li>
+                        )}
+                      </ul>
+                    </div>
                   )}
-                  {[...ipoOrders].reverse().map((o, i) => (
-                    <li key={i} className="feed-item flex items-center gap-2 py-1.5">
-                      <span className="feed-head flex-1 text-xs">
-                        <strong>{o.player}</strong> → {o.word}
-                      </span>
-                      <span
-                        className="text-xs font-bold shrink-0"
-                        style={{ color: "#2be3d4" }}
-                      >
-                        {fmt(o.amount)} USDC @ {o.price}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
 
-              {selectedInfo ? (
-                <div className="mt-4 border-t border-gold/15 pt-3">
-                  <div className="flex items-baseline justify-between mb-2">
-                    <span className="h-display text-xl">{selectedInfo.word}</span>
-                    {selectedInfo.isUserWord && (
-                      <span className="founder-tag">✦ Founder</span>
-                    )}
-                  </div>
-                  <div className="space-y-1.5 mb-3">
-                    <div className="stat-row">
-                      <dt>IPO price</dt>
-                      <dd>{fmt(prices[selectedInfo.word] ?? selectedInfo.price)} USDC</dd>
-                    </div>
-                    <div className="stat-row">
-                      <dt>AI probability</dt>
-                      <dd>{Math.round(selectedInfo.aiProb * 100)}%</dd>
-                    </div>
-                    <div className="stat-row">
-                      <dt>Multiplier</dt>
-                      <dd className="text-teal-glow">{selectedInfo.mult}×</dd>
-                    </div>
-                    <div className="stat-row">
-                      <dt>Your position</dt>
-                      <dd>
-                        {fmt(positions[selectedInfo.word] ?? 0)} USDC
-                        {founderSeeds.has(selectedInfo.word) && " + free seed"}
-                      </dd>
-                    </div>
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    {[1, 5, 10].map((amt) => (
+                  {/* Proceed button — show after settlement done (or immediately if no bids) */}
+                  {(ipoBids.length === 0 || ipoSettleStep >= ipoResults.length) && (
+                    <div className="mt-6 text-center">
+                      {founderSeeds.size > 0 && (
+                        <p className="body-copy text-sm italic mb-4">
+                          Gold border = your submitted words · free founder share locked in
+                        </p>
+                      )}
                       <button
-                        key={`buy-${amt}`}
                         type="button"
-                        className="btn btn-mini-gold"
-                        onClick={() => buy(selectedInfo.word, amt)}
-                        disabled={balance < 1}
+                        className="btn btn-gold"
+                        onClick={() => setPhase("market")}
                       >
-                        Buy +{amt}
+                        Open Trading →
                       </button>
-                    ))}
-                    {(positions[selectedInfo.word] ?? 0) > 0 &&
-                      [1, 5].map((amt) => (
-                        <button
-                          key={`sell-${amt}`}
-                          type="button"
-                          className="btn btn-blood"
-                          style={{ fontSize: "0.62rem" }}
-                          onClick={() => sell(selectedInfo.word, amt)}
-                        >
-                          Sell -{amt}
-                        </button>
-                      ))}
-                  </div>
+                    </div>
+                  )}
                 </div>
-              ) : (
-                <p className="body-copy text-sm mt-3">
-                  Tap a tile on your card to place a bid at the current IPO price.
-                </p>
               )}
-
-              <div className="mt-4 border-t border-gold/15 pt-3">
-                <div className="stat-row mb-1">
-                  <dt>Balance</dt>
-                  <dd>{fmt(balance)} USDC</dd>
-                </div>
-                <div className="stat-row">
-                  <dt>Staked in IPO</dt>
-                  <dd>{fmt(spent)} USDC</dd>
-                </div>
-              </div>
-
-              <button
-                type="button"
-                className="btn btn-gold mt-5 w-full"
-                onClick={() => setPhase("market")}
-              >
-                Open Market — Start Trading →
-              </button>
             </div>
           </div>
         )}
 
-        {/* ═══ Phase: MARKET / LIVE / SETTLED ═══ */}
+        {/* ═══ MARKET / LIVE / SETTLED ═══ */}
         {card && (phase === "market" || phase === "live" || phase === "settled") && (
           <div className="grid items-start gap-6 lg:grid-cols-[1.1fr_0.9fr]">
-            {/* ── Left: bingo card + live transcript ── */}
+            {/* Left: card + transcript */}
             <div className="space-y-4">
               <div className="ornate-frame">
                 <div className="frame-screen board-scene px-2 pb-4 pt-4 sm:px-4 sm:pb-5">
@@ -842,14 +850,9 @@ export default function DemoGame() {
                       <span className="dot gold" aria-hidden="true" />
                       {who} · {fmt(balance)} USDC
                     </span>
-                    <span className="hud-plate hidden xl:inline-flex">
-                      {DEMO_EVENT.name}
-                    </span>
+                    <span className="hud-plate hidden xl:inline-flex">{DEMO_EVENT.name}</span>
                     <span className="hud-plate">
-                      <span
-                        className={`dot ${phase === "live" ? "live" : "gold"}`}
-                        aria-hidden="true"
-                      />
+                      <span className={`dot ${phase === "live" ? "live" : "gold"}`} aria-hidden="true" />
                       {phase === "market" && "Oracle · Standing by"}
                       {phase === "live" && `Oracle · Listening ${elapsed}s`}
                       {phase === "settled" && "Oracle · Settled"}
@@ -860,31 +863,20 @@ export default function DemoGame() {
                     {card.map((w) => {
                       const free = w === FREE;
                       const hit = !free && validated.has(w);
-                      const own =
-                        (positions[w] ?? 0) > 0 || founderSeeds.has(w);
+                      const own = (positions[w] ?? 0) > 0 || founderSeeds.has(w);
                       return (
                         <button
                           type="button"
                           key={w}
-                          className={`bingo-tile ${free ? "free" : ""} ${
-                            hit ? "hit" : ""
-                          } ${selected === w ? "sel" : ""}`}
-                          onClick={() =>
-                            !free && phase === "market" && setSelected(w)
-                          }
+                          className={`bingo-tile ${free ? "free" : ""} ${hit ? "hit" : ""} ${selected === w ? "sel" : ""}`}
+                          onClick={() => !free && phase === "market" && setSelected(w)}
                           disabled={free || phase !== "market"}
-                          aria-label={
-                            free
-                              ? "Free tile"
-                              : `${w}${hit ? " — validated" : ""}`
-                          }
+                          aria-label={free ? "Free tile" : `${w}${hit ? " — validated" : ""}`}
                         >
                           {w}
                           {own && !free && (
                             <span className="owned-chip" aria-hidden="true">
-                              {founderSeeds.has(w) && (positions[w] ?? 0) === 0
-                                ? "✦"
-                                : fmt(positions[w] ?? 0)}
+                              {founderSeeds.has(w) && (positions[w] ?? 0) === 0 ? "✦" : fmt(positions[w] ?? 0)}
                             </span>
                           )}
                         </button>
@@ -902,37 +894,25 @@ export default function DemoGame() {
                 </div>
               </div>
 
-              {/* Live speech transcript */}
               {phase === "live" && (
                 <div className="ornate-frame">
                   <div className="frame-screen board-scene p-4">
                     <div className="mb-2 flex items-center gap-2">
                       <span
-                        className="dot live"
                         aria-hidden="true"
                         style={{
-                          width: 7,
-                          height: 7,
-                          borderRadius: "50%",
-                          background: "#2be3d4",
-                          boxShadow: "0 0 8px rgba(0,198,184,0.9)",
-                          display: "inline-block",
-                          flexShrink: 0,
+                          width: 7, height: 7, borderRadius: "50%",
+                          background: "#2be3d4", boxShadow: "0 0 8px rgba(0,198,184,0.9)",
+                          display: "inline-block", flexShrink: 0,
+                          animation: "pulse-dot 1.6s ease-in-out infinite",
                         }}
                       />
-                      <span className="kicker">
-                        Live Transcript — Whisper STT
-                      </span>
+                      <span className="kicker">Live Transcript — Whisper STT</span>
                     </div>
                     <div className="font-body text-sm text-cream/80 leading-relaxed max-h-28 overflow-y-auto">
                       {SPEECH_TEXT.slice(0, transcriptChars)}
                       {transcriptChars < SPEECH_TEXT.length && (
-                        <span
-                          className="animate-pulse"
-                          style={{ color: "#2be3d4" }}
-                        >
-                          ▌
-                        </span>
+                        <span className="animate-pulse" style={{ color: "#2be3d4" }}>▌</span>
                       )}
                     </div>
                   </div>
@@ -940,15 +920,14 @@ export default function DemoGame() {
               )}
             </div>
 
-            {/* ── Right: market / oracle panel ── */}
+            {/* Right: market / oracle panel */}
             <div className="game-panel">
-              {/* MARKET */}
               {phase === "market" && (
                 <>
                   <div className="flex items-center justify-between gap-2 mb-4">
                     <h2 className="step-title text-sm">Word Market — Live Prices</h2>
                     {priceFlash && (
-                      <span className="text-[10px] text-teal-glow/70 font-mono animate-pulse">
+                      <span className="text-[10px] font-mono animate-pulse" style={{ color: "rgba(43,227,212,0.6)" }}>
                         {priceFlash}
                       </span>
                     )}
@@ -958,106 +937,63 @@ export default function DemoGame() {
                     <div>
                       <div className="flex items-baseline justify-between mb-3">
                         <span className="h-display text-2xl">{selectedInfo.word}</span>
-                        {selectedInfo.isUserWord && (
-                          <span className="founder-tag">✦ Founder</span>
-                        )}
+                        {selectedInfo.isUserWord && <span className="founder-tag">✦ Founder</span>}
                       </div>
                       <div className="space-y-2 mb-4">
-                        <div className="stat-row">
-                          <dt>Price</dt>
-                          <dd>
-                            {fmt(prices[selectedInfo.word] ?? selectedInfo.price)} USDC
-                            <span
-                              className="ml-1 text-[10px]"
-                              style={{
-                                color:
-                                  (prices[selectedInfo.word] ?? selectedInfo.price) >
-                                  selectedInfo.price
-                                    ? "#2be3d4"
-                                    : "#e07a4a",
-                              }}
-                            >
-                              {(prices[selectedInfo.word] ?? selectedInfo.price) >
-                              selectedInfo.price
-                                ? "▲"
-                                : "▼"}
-                            </span>
-                          </dd>
-                        </div>
-                        <div className="stat-row">
-                          <dt>Multiplier</dt>
-                          <dd className="text-teal-glow">{selectedInfo.mult}×</dd>
-                        </div>
-                        <div className="stat-row">
-                          <dt>AI probability</dt>
-                          <dd>{Math.round(selectedInfo.aiProb * 100)}%</dd>
-                        </div>
-                        <div className="stat-row">
-                          <dt>Your position</dt>
-                          <dd>
-                            {fmt(positions[selectedInfo.word] ?? 0)} USDC
-                            {founderSeeds.has(selectedInfo.word) && " + free seed"}
-                          </dd>
-                        </div>
+                        {[
+                          ["Price", `${fmt(prices[selectedInfo.word] ?? selectedInfo.price)} USDC`],
+                          ["Multiplier", `${selectedInfo.mult}×`],
+                          ["AI probability", `${Math.round(selectedInfo.aiProb * 100)}%`],
+                          [
+                            "Your position",
+                            `${fmt(positions[selectedInfo.word] ?? 0)} USDC${
+                              founderSeeds.has(selectedInfo.word) ? " + free seed" : ""
+                            }`,
+                          ],
+                        ].map(([k, v]) => (
+                          <div key={k} className="stat-row">
+                            <dt>{k}</dt>
+                            <dd className={k === "Multiplier" ? "text-teal-glow" : ""}>{v}</dd>
+                          </div>
+                        ))}
                       </div>
                       <div className="flex flex-wrap gap-2">
                         {[1, 5, 10].map((amt) => (
-                          <button
-                            key={`buy-${amt}`}
-                            type="button"
-                            className="btn btn-mini-gold"
-                            onClick={() => buy(selectedInfo.word, amt)}
-                            disabled={balance < 1}
-                          >
+                          <button key={`b${amt}`} type="button" className="btn btn-mini-gold"
+                            onClick={() => buy(selectedInfo.word, amt)} disabled={balance < 1}>
                             Buy +{amt}
                           </button>
                         ))}
                         {(positions[selectedInfo.word] ?? 0) > 0 &&
                           [1, 5].map((amt) => (
-                            <button
-                              key={`sell-${amt}`}
-                              type="button"
-                              className="btn btn-blood"
+                            <button key={`s${amt}`} type="button" className="btn btn-blood"
                               style={{ fontSize: "0.62rem" }}
-                              onClick={() => sell(selectedInfo.word, amt)}
-                            >
+                              onClick={() => sell(selectedInfo.word, amt)}>
                               Sell -{amt}
                             </button>
                           ))}
                       </div>
-                      <button
-                        type="button"
+                      <button type="button"
                         className="mt-3 text-xs text-cream/30 hover:text-cream/60 transition underline block"
-                        onClick={() => setSelected(null)}
-                      >
+                        onClick={() => setSelected(null)}>
                         ← All words
                       </button>
                     </div>
                   ) : (
                     <div>
                       <p className="body-copy text-sm mb-3">
-                        Buy low-probability words for big multipliers, or back
-                        sure things. Prices move with demand — sell anytime before
-                        lock.
+                        Prices move with demand. Sell before the event locks to exit.
+                        IPO positions already showing on your card.
                       </p>
                       <div className="grid grid-cols-2 gap-1.5">
                         {pool.slice(0, 8).map((w) => {
                           const cur = prices[w.word] ?? w.price;
                           const up = cur > w.price;
                           return (
-                            <button
-                              key={w.word}
-                              type="button"
-                              onClick={() => setSelected(w.word)}
-                              className="flex items-center justify-between rounded-lg border border-gold/15 bg-black/25 px-2.5 py-2 text-xs hover:border-gold/40 transition"
-                            >
-                              <span className="font-bold text-cream truncate">
-                                {w.word}
-                              </span>
-                              <span
-                                className="font-bold ml-1 shrink-0"
-                                style={{ color: up ? "#2be3d4" : "#e07a4a" }}
-                              >
+                            <button key={w.word} type="button" onClick={() => setSelected(w.word)}
+                              className="flex items-center justify-between rounded-lg border border-gold/15 bg-black/25 px-2.5 py-2 text-xs hover:border-gold/40 transition">
+                              <span className="font-bold text-cream truncate">{w.word}</span>
+                              <span className="font-bold ml-1 shrink-0" style={{ color: up ? "#2be3d4" : "#e07a4a" }}>
                                 {fmt(cur)}
                               </span>
                             </button>
@@ -1068,48 +1004,27 @@ export default function DemoGame() {
                   )}
 
                   <div className="mt-5 border-t border-gold/15 pt-4 space-y-1.5">
-                    <div className="stat-row">
-                      <dt>Balance</dt>
-                      <dd>{fmt(balance)} USDC</dd>
-                    </div>
-                    <div className="stat-row">
-                      <dt>Total staked</dt>
-                      <dd>{fmt(spent)} USDC</dd>
-                    </div>
+                    <div className="stat-row"><dt>Balance</dt><dd>{fmt(balance)} USDC</dd></div>
+                    <div className="stat-row"><dt>Total staked</dt><dd>{fmt(spent)} USDC</dd></div>
                   </div>
-                  <button
-                    type="button"
-                    className="btn btn-gold mt-6 w-full"
-                    onClick={() => {
-                      setTranscriptChars(0);
-                      setPhase("live");
-                    }}
-                  >
+                  <button type="button" className="btn btn-gold mt-6 w-full"
+                    onClick={() => { setTranscriptChars(0); setPhase("live"); }}>
                     ▶ Lock Market — Start Live Event
                   </button>
                 </>
               )}
 
-              {/* LIVE + SETTLED */}
               {(phase === "live" || phase === "settled") && (
                 <>
                   <div className="flex items-center justify-between gap-2">
                     <h2 className="step-title text-sm">
-                      {phase === "live"
-                        ? "AI Oracle — Live Feed"
-                        : "Oracle — Settled"}
+                      {phase === "live" ? "AI Oracle — Live Feed" : "Oracle — Settled"}
                     </h2>
                     {phase === "live" && (
                       <span className="flex items-center gap-1">
                         {[1, 2, 4].map((s) => (
-                          <button
-                            key={s}
-                            type="button"
-                            className={`chip-btn ${speed === s ? "on" : ""}`}
-                            onClick={() => setSpeed(s)}
-                          >
-                            {s}×
-                          </button>
+                          <button key={s} type="button" className={`chip-btn ${speed === s ? "on" : ""}`}
+                            onClick={() => setSpeed(s)}>{s}×</button>
                         ))}
                       </span>
                     )}
@@ -1117,62 +1032,29 @@ export default function DemoGame() {
 
                   {phase === "settled" && (
                     <div className="mt-4">
-                      {/* AI Oracle Report */}
-                      <div
-                        className="rounded-lg border px-4 py-3 mb-4"
-                        style={{
-                          borderColor: "rgba(43,227,212,0.2)",
-                          background: "rgba(0,30,27,0.3)",
-                        }}
-                      >
-                        <p className="step-title text-xs mb-2" style={{ color: "#2be3d4" }}>
-                          AI Oracle Report
-                        </p>
+                      <div className="rounded-lg border px-4 py-3 mb-4"
+                        style={{ borderColor: "rgba(43,227,212,0.2)", background: "rgba(0,30,27,0.3)" }}>
+                        <p className="step-title text-xs mb-2" style={{ color: "#2be3d4" }}>AI Oracle Report</p>
                         <div className="space-y-1">
                           {[
                             ["Words in pool", String(pool.length)],
-                            ["Oracle events processed", String(script.length)],
+                            ["Events processed", String(script.length)],
                             ["Validated ✓", String(validated.size)],
-                            [
-                              "No match",
-                              String(
-                                script.filter(
-                                  (e) => e.word === null || e.word === "__USER__"
-                                    ? false
-                                    : e.word === null
-                                ).length
-                              ),
-                            ],
                             ["Avg. confidence", "0.93"],
                           ].map(([k, v]) => (
                             <div key={k} className="stat-row">
                               <dt>{k}</dt>
-                              <dd
-                                style={
-                                  k === "Validated ✓"
-                                    ? { color: "#2be3d4" }
-                                    : undefined
-                                }
-                              >
-                                {v}
-                              </dd>
+                              <dd style={k === "Validated ✓" ? { color: "#2be3d4" } : undefined}>{v}</dd>
                             </div>
                           ))}
                         </div>
                       </div>
 
-                      <h3 className="h-display text-2xl mb-3">
-                        Settlement <span className="gold">&amp; Rewards</span>
-                      </h3>
+                      <h3 className="h-display text-2xl mb-3">Settlement <span className="gold">&amp; Rewards</span></h3>
                       <div className="space-y-1.5">
                         {rewardRows.map((r, i) => (
                           <div key={i} className="stat-row">
-                            <dt>
-                              {r.word}{" "}
-                              {r.seed
-                                ? "(founder seed)"
-                                : `· ${fmt(r.stake)} staked`}
-                            </dt>
+                            <dt>{r.word} {r.seed ? "(founder seed)" : `· ${fmt(r.stake)} staked`}</dt>
                             <dd className="text-teal-glow">+{fmt(r.payout)}</dd>
                           </div>
                         ))}
@@ -1183,141 +1065,75 @@ export default function DemoGame() {
                           </div>
                         ))}
                         {rewardRows.length === 0 && bonuses.length === 0 && (
-                          <p className="body-copy text-base">
-                            No winning positions — try backing more words next
-                            round!
-                          </p>
+                          <p className="body-copy text-base">No winning positions — try more words next round!</p>
                         )}
                         <div className="stat-row border-t border-gold/20 pt-2">
                           <dt>Total rewards</dt>
-                          <dd className="text-gold-bright">
-                            +{fmt(rewardTotal)} USDC
-                          </dd>
+                          <dd className="text-gold-bright">+{fmt(rewardTotal)} USDC</dd>
                         </div>
                         <div className="stat-row">
                           <dt>Profit (after {fmt(spent)} staked)</dt>
                           <dd className={profit >= 0 ? "text-teal-glow" : ""}>
-                            {profit >= 0 ? "+" : ""}
-                            {fmt(profit)} USDC
+                            {profit >= 0 ? "+" : ""}{fmt(profit)} USDC
                           </dd>
                         </div>
                       </div>
 
                       {!claimed ? (
-                        <button
-                          type="button"
-                          className="btn btn-gold mt-5 w-full"
-                          onClick={claim}
-                        >
+                        <button type="button" className="btn btn-gold mt-5 w-full" onClick={claim}>
                           Claim {fmt(rewardTotal)} USDC on Mantle
                         </button>
                       ) : (
                         <>
                           <p className="curation accepted mt-4">
-                            Claimed! Balance:{" "}
-                            <strong>{fmt(balance)} USDC</strong>
+                            Claimed! Balance: <strong>{fmt(balance)} USDC</strong>
                           </p>
-
-                          {/* Leaderboard */}
                           <div className="mt-5">
-                            <h3 className="step-title text-xs mb-2">
-                              Leaderboard — Human vs AI
-                            </h3>
+                            <h3 className="step-title text-xs mb-2">Leaderboard — Human vs AI</h3>
                             <div className="space-y-1.5">
-                              {[
-                                ...RIVALS,
-                                {
-                                  name: `${who} (you)`,
-                                  kind: "Human",
-                                  profit,
-                                },
-                              ]
+                              {[...RIVALS, { name: `${who} (you)`, kind: "Human", profit }]
                                 .sort((a, b) => b.profit - a.profit)
                                 .map((r, i) => (
                                   <div key={r.name} className="stat-row">
-                                    <dt>
-                                      {i + 1}. {r.name}{" "}
-                                      <span className="kicker">
-                                        · {r.kind}
-                                      </span>
-                                    </dt>
-                                    <dd
-                                      className={
-                                        r.profit >= 0 ? "text-teal-glow" : ""
-                                      }
-                                    >
-                                      {r.profit >= 0 ? "+" : ""}
-                                      {fmt(r.profit)}
+                                    <dt>{i + 1}. {r.name} <span className="kicker">· {r.kind}</span></dt>
+                                    <dd className={r.profit >= 0 ? "text-teal-glow" : ""}>
+                                      {r.profit >= 0 ? "+" : ""}{fmt(r.profit)}
                                     </dd>
                                   </div>
                                 ))}
                             </div>
                           </div>
-
-                          {/* Trustless / Admin note */}
-                          <div
-                            className="mt-5 rounded-lg border px-4 py-3"
-                            style={{
-                              borderColor: "rgba(217,164,65,0.2)",
-                              background: "rgba(0,0,0,0.3)",
-                            }}
-                          >
-                            <p className="step-title text-xs mb-2" style={{ color: "#e8c66b" }}>
-                              ✦ Trustless by Design
-                            </p>
+                          <div className="mt-5 rounded-lg border px-4 py-3"
+                            style={{ borderColor: "rgba(217,164,65,0.2)", background: "rgba(0,0,0,0.3)" }}>
+                            <p className="step-title text-xs mb-2" style={{ color: "#e8c66b" }}>✦ Trustless by Design</p>
                             <p className="step-desc text-xs leading-relaxed mb-2">
-                              AI oracle verdicts are written on-chain — no admin
-                              can override after the event starts. Organizers can
-                              create events, fund prize pools, and cancel before
-                              go-live (full refund). They cannot touch results.
+                              AI oracle verdicts commit on-chain — no admin override after event starts.
+                              Organizers fund prize pools and can cancel before go-live (full refund). Results are immutable.
                             </p>
                             <p className="step-desc text-xs leading-relaxed">
-                              <strong style={{ color: "#cdbb96" }}>
-                                AI limitations disclosed upfront:
-                              </strong>{" "}
-                              Whisper may miss words in poor audio. Ambiguous
-                              homophones may not match. Players accept oracle
-                              risk before any trade is placed — same as how
-                              real prediction markets agree on resolution
-                              sources in advance.
+                              <strong style={{ color: "#cdbb96" }}>AI risk disclosed upfront:</strong>{" "}
+                              Whisper may miss words in poor audio. Ambiguous homophones may not match.
+                              Players accept oracle risk before any trade is placed — same as how prediction
+                              markets agree on resolution sources in advance.
                             </p>
                           </div>
-
                           <div className="mt-5 flex gap-3">
-                            <button
-                              type="button"
-                              className="btn btn-ghost flex-1"
-                              onClick={reset}
-                            >
-                              Play Again
-                            </button>
-                            <Link href="/" className="btn btn-gold flex-1">
-                              Back Home
-                            </Link>
+                            <button type="button" className="btn btn-ghost flex-1" onClick={reset}>Play Again</button>
+                            <Link href="/" className="btn btn-gold flex-1">Back Home</Link>
                           </div>
                         </>
                       )}
                     </div>
                   )}
 
-                  {/* Oracle feed (live + settled) */}
                   <ul className="feed mt-4" aria-live="polite">
                     {feed.map((e) => (
-                      <li
-                        key={e.id}
-                        className={`feed-item ${e.word ? "" : "reject"}`}
-                      >
+                      <li key={e.id} className={`feed-item ${e.word ? "" : "reject"}`}>
                         <span className="feed-head">
                           {e.word ? (
-                            <>
-                              <strong>{e.word}</strong> ✓ validated · conf{" "}
-                              {e.conf.toFixed(2)}
-                            </>
+                            <><strong>{e.word}</strong> ✓ validated · conf {e.conf.toFixed(2)}</>
                           ) : (
-                            <>
-                              heard &ldquo;{e.heard}&rdquo; — no match · conf{" "}
-                              {e.conf.toFixed(2)}
-                            </>
+                            <>heard &ldquo;{e.heard}&rdquo; — no match · conf {e.conf.toFixed(2)}</>
                           )}
                         </span>
                         <span className="quote">{e.snippet}</span>
@@ -1327,8 +1143,7 @@ export default function DemoGame() {
                       <li className="feed-item">
                         <span className="feed-head">Oracle warming up…</span>
                         <span className="quote">
-                          Whisper is transcribing the venue audio. Verdicts land
-                          here — and commit on-chain — in real time.
+                          Whisper is transcribing the venue audio. Verdicts land here and commit on-chain in real time.
                         </span>
                       </li>
                     )}
@@ -1340,11 +1155,8 @@ export default function DemoGame() {
         )}
       </main>
 
-      {/* Bingo banner */}
       {banner && (
-        <div className="bingo-banner" role="status">
-          ✦ BINGO — {banner}
-        </div>
+        <div className="bingo-banner" role="status">✦ BINGO — {banner}</div>
       )}
     </div>
   );
