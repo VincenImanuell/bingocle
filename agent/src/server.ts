@@ -3,7 +3,7 @@ import { config } from "./config.js";
 import { createEvent, phaseOf } from "./services/event.js";
 import { curateAndCommit } from "./services/pool.js";
 import { validateTranscript } from "./services/oracleRun.js";
-import { getEvent, listEvents, ensureEvent, addSubmission } from "./store.js";
+import { getEvent, listEvents, ensureEvent, addSubmission, putEvent } from "./store.js";
 import { contracts } from "./chain.js";
 
 const app = express();
@@ -66,6 +66,33 @@ app.post(
     }
     addSubmission(id, { raw: word, wallet: player, ts: Math.floor(Date.now() / 1000) });
     res.json({ ok: true });
+  }),
+);
+
+// Sync the off-chain word labels/odds for an event whose pool was committed directly
+// on-chain (so the web app shows real words + multipliers instead of #0..#23).
+app.post(
+  "/events/:id/sync-pool",
+  wrap(async (req, res) => {
+    const id = Number(req.params.id);
+    const words: string[] = Array.isArray(req.body?.words) ? req.body.words.map(String) : [];
+    if (!words.length) {
+      res.status(400).json({ reason: "words[] required" });
+      return;
+    }
+    const price1e4 = Number(req.body?.price1e4 ?? 5000);
+    const mult1e4 = Number(req.body?.mult1e4 ?? 20000);
+    const existing = getEvent(id);
+    putEvent({
+      eventId: id,
+      theme: existing?.theme ?? `Bingocle Event #${id}`,
+      description: existing?.description ?? existing?.theme ?? `Bingocle Event #${id}`,
+      words,
+      founders: words.map(() => "0x0000000000000000000000000000000000000000"),
+      odds: words.map((w) => ({ word: w, aiProb: 0.5, price1e4, mult1e4 })),
+      submissions: existing?.submissions,
+    });
+    res.json({ ok: true, words: words.length });
   }),
 );
 
