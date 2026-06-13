@@ -128,6 +128,7 @@ export default function OnchainGame() {
       { address: addresses.eventFactory, abi: eventFactoryAbi, functionName: "phaseOf", args: [BigInt(eventId)] },
       { address: addresses.wordPool, abi: wordPoolAbi, functionName: "wordCount", args: [BigInt(eventId)] },
       { address: addresses.wordPool, abi: wordPoolAbi, functionName: "isCommitted", args: [BigInt(eventId)] },
+      { address: addresses.eventFactory, abi: eventFactoryAbi, functionName: "getConfig", args: [BigInt(eventId)] },
     ] : [],
     query: { refetchInterval: 7000, placeholderData: keepPreviousData },
   });
@@ -136,6 +137,29 @@ export default function OnchainGame() {
   const committed = Boolean(meta?.[2]?.result);
   const uiPhase = contractToUi(contractPhase);
   const phaseIdx = PHASE_STEPS.findIndex((p) => p.key === uiPhase);
+
+  // per-phase countdown (ticks every second)
+  const cfg = meta?.[3]?.result as
+    | { submissionEnd: bigint; founderEnd: bigint; marketLock: bigint; eventEnd: bigint; disputeEnd: bigint }
+    | undefined;
+  const [nowSec, setNowSec] = useState(() => Math.floor(Date.now() / 1000));
+  useEffect(() => {
+    const id = setInterval(() => setNowSec(Math.floor(Date.now() / 1000)), 1000);
+    return () => clearInterval(id);
+  }, []);
+  const phaseEndTs = (() => {
+    if (!cfg) return 0;
+    switch (contractPhase) {
+      case "Submission": return Number(cfg.submissionEnd);
+      case "Founder": return Number(cfg.founderEnd);
+      case "Market": return Number(cfg.marketLock);
+      case "Live": return Number(cfg.eventEnd);
+      case "Dispute": return Number(cfg.disputeEnd);
+      default: return 0;
+    }
+  })();
+  const secsLeft = phaseEndTs > 0 ? Math.max(0, phaseEndTs - nowSec) : 0;
+  const fmtCd = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 
   const priceCalls = useMemo(
     () => Array.from({ length: wordCount }, (_, w) => ({
@@ -364,6 +388,11 @@ export default function OnchainGame() {
             <span className="kicker rounded bg-black/30 px-2 py-1">
               {contractPhase}
             </span>
+            {secsLeft > 0 && (
+              <span className="kicker rounded px-2 py-1" style={{ background: "rgba(43,227,212,0.12)", color: "#7ecdc7" }}>
+                ⏳ {fmtCd(secsLeft)} left
+              </span>
+            )}
           </div>
         )}
 
