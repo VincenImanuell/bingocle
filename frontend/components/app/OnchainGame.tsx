@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ConnectButton } from "@rainbow-me/rainbowkit";
+import ConnectWalletButton from "@/components/ConnectWalletButton";
 import {
   useAccount,
   useReadContract,
@@ -299,7 +299,7 @@ export default function OnchainGame() {
               On-Chain · Mantle Sepolia
             </span>
           )}
-          <ConnectButton />
+          <ConnectWalletButton />
         </div>
       </header>
 
@@ -328,7 +328,7 @@ export default function OnchainGame() {
             <p className="body-copy text-base mb-6">
               You need a wallet on Mantle Sepolia to participate on-chain. Switch to demo mode to explore without a wallet.
             </p>
-            <ConnectButton />
+            <ConnectWalletButton />
             <div className="mt-4">
               <Link href="/play" className="text-xs text-cream/40 hover:text-cream/70 underline transition">
                 ← Back to demo
