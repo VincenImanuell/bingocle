@@ -315,10 +315,26 @@ export default function OnchainGame() {
   }
 
   async function claim() {
-    return run("claim", async () => {
-      await writeContractAsync({ address: addresses.wordMarket, abi: wordMarketAbi, functionName: "redeem", args: [BigInt(eventId)] }).catch(() => {});
-      return writeContractAsync({ address: addresses.rewardVault, abi: rewardVaultAbi, functionName: "claim", args: [BigInt(eventId)] });
-    });
+    setBusy("claim");
+    setFlashMsg(null);
+    let lastHash: `0x${string}` | undefined;
+    const tryTx = async (cfg: Parameters<typeof writeContractAsync>[0]) => {
+      try { lastHash = await writeContractAsync(cfg); return true; } catch { return false; }
+    };
+    // settle once (computes the on-chain payout split) — no-op if already settled
+    await tryTx({ address: addresses.wordMarket, abi: wordMarketAbi, functionName: "settle", args: [BigInt(eventId)] });
+    // prediction payout (from the market reserve) + bingo bonus (from the sponsor pool); independent
+    const redeemed = await tryTx({ address: addresses.wordMarket, abi: wordMarketAbi, functionName: "redeem", args: [BigInt(eventId)] });
+    const bonus = await tryTx({ address: addresses.rewardVault, abi: rewardVaultAbi, functionName: "claim", args: [BigInt(eventId)] });
+    if (lastHash) setTxHash(lastHash);
+    await new Promise((r) => setTimeout(r, 2500));
+    refetchAll();
+    setFlashMsg(
+      redeemed || bonus
+        ? "💰 Winnings claimed!"
+        : "Nothing claimable for this wallet (no winning positions, and the bingo bonus pool is empty for this event).",
+    );
+    setBusy(null);
   }
 
   const wordLabel = (w: number) => record?.words[w] ?? `#${w}`;
