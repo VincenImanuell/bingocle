@@ -11,6 +11,7 @@ import {
   useWaitForTransactionReceipt,
 } from "wagmi";
 import { readContract } from "wagmi/actions";
+import { keepPreviousData } from "@tanstack/react-query";
 import { formatEther, parseEther } from "viem";
 import { wagmiConfig } from "@/lib/wagmi";
 import {
@@ -85,7 +86,7 @@ export default function OnchainGame() {
     address: addresses.eventFactory,
     abi: eventFactoryAbi,
     functionName: "eventCount",
-    query: { refetchInterval: 10000 },
+    query: { refetchInterval: 10000, placeholderData: keepPreviousData },
   });
   const totalEvents = eventCountData ? Number(eventCountData as bigint) : 0;
 
@@ -99,7 +100,7 @@ export default function OnchainGame() {
     })),
     [totalEvents]
   );
-  const { data: lobbyPhases } = useReadContracts({ contracts: lobbyCalls, query: { refetchInterval: 10000 } });
+  const { data: lobbyPhases } = useReadContracts({ contracts: lobbyCalls, query: { refetchInterval: 10000, placeholderData: keepPreviousData } });
 
   // Event titles (themes) for the lobby — fetched from the agent's records.
   useEffect(() => {
@@ -128,7 +129,7 @@ export default function OnchainGame() {
       { address: addresses.wordPool, abi: wordPoolAbi, functionName: "wordCount", args: [BigInt(eventId)] },
       { address: addresses.wordPool, abi: wordPoolAbi, functionName: "isCommitted", args: [BigInt(eventId)] },
     ] : [],
-    query: { refetchInterval: 7000 },
+    query: { refetchInterval: 7000, placeholderData: keepPreviousData },
   });
   const contractPhase = meta?.[0]?.result !== undefined ? PHASES[Number(meta[0].result)] : "None";
   const wordCount = meta?.[1]?.result ? Number(meta[1].result) : record?.words.length ?? 0;
@@ -156,15 +157,15 @@ export default function OnchainGame() {
       : [],
     [wordCount, eventId, address]
   );
-  const { data: spotPrices, refetch: refetchPrices } = useReadContracts({ contracts: priceCalls, query: { refetchInterval: 7000 } });
-  const { data: myShares, refetch: refetchShares } = useReadContracts({ contracts: shareCalls, query: { refetchInterval: 7000 } });
+  const { data: spotPrices, refetch: refetchPrices } = useReadContracts({ contracts: priceCalls, query: { refetchInterval: 7000, placeholderData: keepPreviousData } });
+  const { data: myShares, refetch: refetchShares } = useReadContracts({ contracts: shareCalls, query: { refetchInterval: 7000, placeholderData: keepPreviousData } });
 
   const { data: cardData, refetch: refetchCard } = useReadContracts({
     contracts: address && eventId > 0 ? [
       { address: addresses.bingoCardNFT, abi: bingoCardAbi, functionName: "hasCard", args: [BigInt(eventId), address] },
       { address: addresses.bingoCardNFT, abi: bingoCardAbi, functionName: "cardOf", args: [BigInt(eventId), address] },
     ] : [],
-    query: { refetchInterval: 10000 },
+    query: { refetchInterval: 10000, placeholderData: keepPreviousData },
   });
   const hasCard = Boolean(cardData?.[0]?.result);
   const tokenId = cardData?.[1]?.result as bigint | undefined;
@@ -174,7 +175,7 @@ export default function OnchainGame() {
       { address: addresses.bingoCardNFT, abi: bingoCardAbi, functionName: "cardCells", args: [tokenId] },
       { address: addresses.bingoCardNFT, abi: bingoCardAbi, functionName: "markedMask", args: [tokenId] },
     ] : [],
-    query: { refetchInterval: 7000 },
+    query: { refetchInterval: 7000, placeholderData: keepPreviousData },
   });
   const cells = cardView?.[0]?.result as readonly number[] | undefined;
   const markedMask = cardView?.[1]?.result ? Number(cardView[1].result) : 0;
@@ -184,7 +185,7 @@ export default function OnchainGame() {
     abi: wordMarketAbi,
     functionName: "previewRedeem",
     args: address && eventId > 0 ? [BigInt(eventId), address] : undefined,
-    query: { enabled: Boolean(address) && eventId > 0, refetchInterval: 10000 },
+    query: { enabled: Boolean(address) && eventId > 0, refetchInterval: 10000, placeholderData: keepPreviousData },
   });
 
   // ── fetch agent record ──
@@ -686,14 +687,14 @@ export default function OnchainGame() {
                 <h2 className="step-title text-sm">Word Market — Live Prices</h2>
               </div>
 
-              {selectedWord !== null ? (
-                <div>
+              {selectedWord !== null && (
+                <div className="mb-4 pb-4 border-b border-gold/15">
                   <button
                     type="button"
                     className="text-xs text-cream/30 hover:text-cream/60 underline block mb-3"
                     onClick={() => setSelectedWord(null)}
                   >
-                    ← All words
+                    ✕ close detail
                   </button>
                   <div className="flex items-baseline justify-between mb-2">
                     <span className="h-display text-2xl">{wordLabel(selectedWord)}</span>
@@ -747,7 +748,9 @@ export default function OnchainGame() {
                     )}
                   </div>
                 </div>
-              ) : (
+              )}
+
+              {(
                 <div>
                   <p className="body-copy text-sm mb-3">
                     Prices move via bonding curve. Buy words you predict the speaker will say.
@@ -842,12 +845,17 @@ export default function OnchainGame() {
               </div>
               <div
                 className="rounded-lg border px-4 py-3 mb-4"
-                style={{ borderColor: "rgba(43,227,212,0.2)", background: "rgba(0,30,27,0.3)" }}
+                style={{ borderColor: "rgba(43,227,212,0.25)", background: "rgba(0,30,27,0.35)" }}
               >
-                <p className="step-title text-xs mb-2" style={{ color: "#2be3d4" }}>Oracle Status</p>
-                <p className="body-copy text-sm">
-                  Whisper STT is transcribing the event audio. Oracle verdicts are written on-chain by the AI agent identity.
-                  Validated words mark your card automatically.
+                <p className="step-title text-xs mb-2" style={{ color: "#2be3d4" }}>🎙️ AI Oracle — Transcribing Audio</p>
+                <audio controls src="/demo-speech.mp3" style={{ width: "100%" }} />
+                <div className="flex items-center gap-2 mt-2">
+                  <span className="animate-pulse" style={{ color: "#2be3d4", letterSpacing: 2 }}>▉ ▍ ▉ ▎ ▉</span>
+                  <span className="text-xs text-cream/70">Listening → matching pool words → writing verdicts on-chain…</span>
+                </div>
+                <p className="text-[10px] text-cream/40 mt-2">
+                  Demo input is an MP3 clip (efficient + reproducible). In production the same STT → on-chain
+                  pipeline can ingest a live feed — a YouTube/Twitch/RTMP stream or a mic.
                 </p>
               </div>
               {cells && (
