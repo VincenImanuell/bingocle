@@ -174,7 +174,7 @@ body {
 
 .kicker {
   font-family: var(--font-ui);
-  font-size: 0.68rem;
+  font-size: 0.76rem;
   letter-spacing: 0.3em;
   text-transform: uppercase;
   color: #9c8a64;
@@ -291,7 +291,7 @@ body {
 /* small dark-red utility button (top bar) */
 .btn-blood {
   color: #f5e6c8;
-  font-size: 0.62rem;
+  font-size: 0.7rem;
   padding: 0.38rem 0.95rem;
   border-radius: 4px;
   background: linear-gradient(180deg, #6e2517 0%, #471409 100%);
@@ -312,7 +312,7 @@ body {
 /* small gold-outline utility button (top bar) */
 .btn-mini-gold {
   color: #e9b95c;
-  font-size: 0.62rem;
+  font-size: 0.7rem;
   padding: 0.38rem 0.95rem;
   border-radius: 4px;
   background: linear-gradient(180deg, #211608 0%, #140d05 100%);
@@ -333,7 +333,7 @@ body {
   align-items: center;
   gap: 0.6rem;
   font-family: var(--font-ui);
-  font-size: 0.72rem;
+  font-size: 0.8rem;
   font-weight: 600;
   letter-spacing: 0.18em;
   text-transform: uppercase;
@@ -387,7 +387,7 @@ body {
 
 .topbar-link {
   font-family: var(--font-ui);
-  font-size: 0.62rem;
+  font-size: 0.7rem;
   letter-spacing: 0.16em;
   text-transform: uppercase;
   color: #b59c6e;
@@ -583,7 +583,7 @@ body {
   background: linear-gradient(180deg, #241a0d, #120c05);
   border: 1px solid rgba(217, 164, 65, 0.55);
   font-family: var(--font-ui);
-  font-size: 0.58rem;
+  font-size: 0.73rem;
   font-weight: 700;
   letter-spacing: 0.14em;
   color: #f2c66d;
@@ -600,7 +600,7 @@ body {
   display: grid;
   place-items: center;
   font-family: var(--font-ui);
-  font-size: 0.62rem;
+  font-size: 0.7rem;
   font-weight: 700;
   background: radial-gradient(circle at 35% 30%, #2c2113, #100a04 75%);
   border: 1px solid rgba(217, 164, 65, 0.6);
@@ -702,7 +702,7 @@ body {
 
 .watch-label {
   font-family: var(--font-ui);
-  font-size: 0.62rem;
+  font-size: 0.7rem;
   font-weight: 700;
   letter-spacing: 0.26em;
   text-transform: uppercase;
@@ -853,11 +853,11 @@ body {
 
 .step-title {
   font-family: var(--font-ui);
-  font-size: 0.72rem;
+  font-size: 0.8rem;
   font-weight: 700;
   letter-spacing: 0.12em;
   text-transform: uppercase;
-  color: #f5e6c8;
+  color: #ddd0ac;
 }
 
 .step-desc {
@@ -909,7 +909,7 @@ body {
 
 .ribbon-btn {
   font-family: var(--font-ui);
-  font-size: 0.66rem;
+  font-size: 0.73rem;
   font-weight: 700;
   letter-spacing: 0.18em;
   color: #d9a441;
@@ -957,7 +957,7 @@ body {
   background: linear-gradient(180deg, rgba(24, 17, 9, 0.92), rgba(10, 7, 4, 0.95));
   border: 1px solid rgba(217, 164, 65, 0.4);
   font-family: var(--font-ui);
-  font-size: 0.6rem;
+  font-size: 0.76rem;
   font-weight: 700;
   letter-spacing: 0.14em;
   text-transform: uppercase;
@@ -1137,7 +1137,7 @@ body {
   font-family: var(--font-ui);
   font-size: clamp(0.55rem, 1vw, 0.78rem);
   font-weight: 700;
-  color: #2be3d4;
+  color: #7ecdc7;
   text-shadow: 0 0 10px rgba(0, 198, 184, 0.6);
 }
 
@@ -1305,7 +1305,7 @@ body {
 
 .footer-link {
   font-family: var(--font-ui);
-  font-size: 0.62rem;
+  font-size: 0.7rem;
   letter-spacing: 0.16em;
   text-transform: uppercase;
   color: #8a7a57;
@@ -1382,7 +1382,7 @@ body {
   align-items: center;
   gap: 0.45rem;
   font-family: var(--font-ui);
-  font-size: 0.62rem;
+  font-size: 0.7rem;
   font-weight: 600;
   letter-spacing: 0.14em;
   text-transform: uppercase;
@@ -1395,7 +1395,7 @@ body {
   display: grid;
   place-items: center;
   border-radius: 50%;
-  font-size: 0.6rem;
+  font-size: 0.76rem;
   background: radial-gradient(circle at 35% 30%, #221a10, #0c0804 75%);
   border: 1px solid #3a2d18;
   color: inherit;
@@ -1411,12 +1411,12 @@ body {
 }
 
 .phase-step.done {
-  color: #2be3d4;
+  color: #7ecdc7;
 }
 
 .phase-step.done .p-rune {
   border-color: rgba(0, 198, 184, 0.6);
-  color: #2be3d4;
+  color: #7ecdc7;
 }
 
 .game-panel {
@@ -1438,7 +1438,7 @@ body {
 
 .stat-row dt {
   font-family: var(--font-ui);
-  font-size: 0.66rem;
+  font-size: 0.73rem;
   font-weight: 600;
   letter-spacing: 0.12em;
   text-transform: uppercase;
@@ -1449,7 +1449,7 @@ body {
   font-family: var(--font-ui);
   font-size: 0.78rem;
   font-weight: 700;
-  color: #f5e6c8;
+  color: #ddd0ac;
 }
 
 .curation {
@@ -1475,7 +1475,7 @@ body {
 
 .founder-tag {
   font-family: var(--font-ui);
-  font-size: 0.58rem;
+  font-size: 0.73rem;
   font-weight: 700;
   letter-spacing: 0.12em;
   text-transform: uppercase;
@@ -1489,7 +1489,7 @@ body {
 
 .chip-btn {
   font-family: var(--font-ui);
-  font-size: 0.6rem;
+  font-size: 0.76rem;
   font-weight: 700;
   letter-spacing: 0.1em;
   color: #9c8a64;
@@ -1553,7 +1553,7 @@ body {
 .feed-head {
   display: block;
   font-family: var(--font-ui);
-  font-size: 0.62rem;
+  font-size: 0.7rem;
   font-weight: 700;
   letter-spacing: 0.1em;
   text-transform: uppercase;

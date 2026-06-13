@@ -517,15 +517,15 @@ export default function DemoGame() {
 
       <div
         style={{
-          background: "rgba(43,227,212,0.07)",
-          borderBottom: "1px solid rgba(43,227,212,0.18)",
-          padding: "0.45rem 1rem",
+          background: "rgba(20,12,5,0.6)",
+          borderBottom: "1px solid rgba(217,164,65,0.15)",
+          padding: "0.5rem 1rem",
           textAlign: "center",
           fontFamily: "var(--font-ui)",
-          fontSize: "0.62rem",
-          letterSpacing: "0.22em",
+          fontSize: "0.7rem",
+          letterSpacing: "0.18em",
           textTransform: "uppercase",
-          color: "#2be3d4",
+          color: "#9c8a64",
         }}
       >
         ✦ Demo Mode — simulated · no real funds · wallets optional ✦
@@ -773,7 +773,7 @@ export default function DemoGame() {
                         <li key={b.id} className="flex items-center gap-2">
                           <span
                             className="text-xs shrink-0"
-                            style={{ color: ok ? "#2be3d4" : "#e07a4a" }}
+                            style={{ color: ok ? "#7ecdc7" : "#e07a4a" }}
                           >
                             {ok ? "✓" : "!"}
                           </span>
@@ -1175,13 +1175,13 @@ export default function DemoGame() {
                                 <div className="text-right shrink-0 ml-2">
                                   <span
                                     className="text-xs font-bold"
-                                    style={{ color: isUp ? "#2be3d4" : "#e07a4a" }}
+                                    style={{ color: isUp ? "#7ecdc7" : "#e07a4a" }}
                                   >
                                     {fmt(cur)}
                                   </span>
                                   <span
                                     className="text-[9px] ml-1"
-                                    style={{ color: isUp ? "#2be3d4" : "#e07a4a" }}
+                                    style={{ color: isUp ? "#7ecdc7" : "#e07a4a" }}
                                   >
                                     {isUp ? "+" : ""}
                                     {pct.toFixed(1)}%
