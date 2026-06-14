@@ -19,12 +19,12 @@ export default function TopBar() {
       <div className="mx-auto flex h-9 max-w-6xl items-center justify-between gap-4 px-4">
         <nav
           aria-label="Utility"
-          className="flex items-center gap-3 sm:gap-5 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+          className="flex min-w-0 items-center gap-2 sm:gap-4"
         >
           {NAV_ITEMS.map((item, i) => (
             <span
               key={item.label}
-              className={`flex items-center gap-3 sm:gap-5${
+              className={`flex items-center gap-2 sm:gap-4${
                 item.desktopOnly ? " max-sm:hidden" : ""
               }`}
             >

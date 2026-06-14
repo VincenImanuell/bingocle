@@ -392,8 +392,8 @@ body {
 
 .topbar-link {
   font-family: var(--font-ui);
-  font-size: 0.88rem;
-  letter-spacing: 0.16em;
+  font-size: 0.74rem;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
   color: #b59c6e;
   white-space: nowrap;

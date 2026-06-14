@@ -15,13 +15,6 @@ const HEX_TILES: {
   { face: "face-teal", left: 168, top: 76, w: 50 },
 ];
 
-const FOOTER_LINKS = [
-  { label: "Docs", href: "#about" },
-  { label: "Terms", href: "#footer" },
-  { label: "Privacy", href: "#footer" },
-  { label: "Contact", href: "#footer" },
-];
-
 export default function Footer() {
   return (
     <footer id="footer" className="footer-band">
@@ -64,26 +57,6 @@ export default function Footer() {
           <p className="footer-link cursor-default">
             © 2026 Bingocle · All rights reserved
           </p>
-          <nav
-            aria-label="Footer"
-            className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1"
-          >
-            {FOOTER_LINKS.map((l, i) => (
-              <span key={l.label} className="flex items-center gap-3">
-                {i > 0 && (
-                  <span
-                    className="nav-dot hidden text-[0.5rem] sm:inline"
-                    aria-hidden="true"
-                  >
-                    ▸
-                  </span>
-                )}
-                <a className="footer-link" href={l.href}>
-                  {l.label}
-                </a>
-              </span>
-            ))}
-          </nav>
           <p className="footer-link cursor-default">⚔ Built for Hackathon</p>
         </div>
       </div>

@@ -61,15 +61,9 @@ export default function GamePreview() {
         </Reveal>
 
         <Reveal delay={150}>
-        {/* ── round badge + prev/next ribbons ── */}
+        {/* ── round badge ── */}
         <div className="relative z-10 mb-[-44px] flex items-center justify-center">
-          <button type="button" className="ribbon-btn prev">
-            ◂ Prev
-          </button>
           <div className="turn-badge text-xl sm:text-2xl">5×5</div>
-          <button type="button" className="ribbon-btn next">
-            Next ▸
-          </button>
         </div>
 
         {/* ── the big framed board ── */}

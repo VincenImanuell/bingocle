@@ -400,7 +400,10 @@ export default function OnchainGame() {
               ← All Events
             </button>
             <span className="kicker text-cream/20">|</span>
-            <span className="kicker">Event #{eventId}</span>
+            <span className="kicker">
+              Event #{eventId}
+              {record?.theme ? ` · ${record.theme}` : ""}
+            </span>
             <span className="kicker rounded bg-black/30 px-2 py-1">
               {contractPhase}
             </span>
@@ -499,7 +502,7 @@ export default function OnchainGame() {
                             flex: 1,
                             height: 3,
                             borderRadius: 2,
-                            background: pi < stepIdx ? "#2be3d4" : pi === stepIdx ? "#e9b95c" : "rgba(255,255,255,0.08)",
+                            background: ui === "settled" ? "#2be3d4" : pi < stepIdx ? "#2be3d4" : pi === stepIdx ? "#e9b95c" : "rgba(255,255,255,0.08)",
                           }} />
                         ))}
                       </div>
