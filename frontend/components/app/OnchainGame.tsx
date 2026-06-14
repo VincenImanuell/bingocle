@@ -361,13 +361,21 @@ export default function OnchainGame() {
     <div className="app-bg">
       <header className="topbar">
         <div className="mx-auto flex h-11 max-w-6xl items-center justify-between gap-4 px-4">
-          <button
-            type="button"
-            onClick={() => { setEventId(0); setRecord(null); setSelectedWord(null); }}
-            className="wordmark text-lg"
-          >
-            Bingocle
-          </button>
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => { setEventId(0); setRecord(null); setSelectedWord(null); }}
+              className="wordmark text-lg"
+            >
+              Bingocle
+            </button>
+            <Link
+              href="/"
+              className="kicker text-cream/45 transition-colors hover:text-cream/80"
+            >
+              ← Landing
+            </Link>
+          </div>
           {eventId > 0 ? (
             <nav aria-label="Game phase" className="hidden items-center gap-1.5 lg:flex">
               {PHASE_STEPS.map((p, i) => (
@@ -431,7 +439,7 @@ export default function OnchainGame() {
               <ConnectWalletButton />
             </div>
             <div className="mt-4">
-              <Link href="/play" className="text-xs text-cream/40 hover:text-cream/70 underline transition">
+              <Link href="/play" className="text-sm text-cream/40 hover:text-cream/70 underline transition">
                 ← Back to demo
               </Link>
             </div>
@@ -494,7 +502,7 @@ export default function OnchainGame() {
                           border: "1px solid rgba(43,227,212,0.2)",
                           borderRadius: 3,
                           padding: "0.1rem 0.5rem",
-                          fontSize: "0.58rem",
+                          fontSize: "0.7rem",
                         }}>
                           {phaseName}
                         </span>
@@ -512,7 +520,7 @@ export default function OnchainGame() {
                           }} />
                         ))}
                       </div>
-                      <p style={{ fontSize: "0.6rem", color: "rgba(205,187,150,0.4)", marginTop: "0.5rem", fontFamily: "var(--font-ui)", letterSpacing: "0.05em" }}>
+                      <p style={{ fontSize: "0.72rem", color: "rgba(205,187,150,0.4)", marginTop: "0.5rem", fontFamily: "var(--font-ui)", letterSpacing: "0.05em" }}>
                         {PHASE_STEPS[stepIdx]?.label ?? "—"} phase · tap to enter →
                       </p>
                     </button>
@@ -521,7 +529,7 @@ export default function OnchainGame() {
               </div>
             )}
             <div className="mt-6 text-center">
-              <Link href="/play" className="text-xs text-cream/30 hover:text-cream/60 underline transition">
+              <Link href="/play" className="text-sm text-cream/30 hover:text-cream/60 underline transition">
                 ← Try demo mode
               </Link>
             </div>
@@ -551,7 +559,7 @@ export default function OnchainGame() {
                 {address?.slice(0, 6)}…{address?.slice(-4)}
               </span>
             </p>
-            <p className="text-xs text-cream/30 mt-3 text-center">
+            <p className="text-sm text-cream/30 mt-3 text-center">
               Waiting for event to enter Submission phase · refresh to check
             </p>
             <div className="mt-6 text-center">
@@ -611,7 +619,7 @@ export default function OnchainGame() {
                 <p className="kicker mb-3">Current pool — {wordCount} words</p>
                 <div className="flex flex-wrap gap-1.5">
                   {Array.from({ length: wordCount }, (_, w) => (
-                    <span key={w} className="rounded border border-gold/20 bg-black/20 px-2 py-0.5 text-xs text-cream/70">
+                    <span key={w} className="rounded border border-gold/20 bg-black/20 px-2 py-0.5 text-sm text-cream/70">
                       {wordLabel(w)}
                       <span className="ml-1 text-cream/30">{wordProb(w)}%</span>
                     </span>
@@ -621,7 +629,7 @@ export default function OnchainGame() {
             )}
 
             <div className="text-center">
-              <p className="text-xs text-cream/30 mb-3">
+              <p className="text-sm text-cream/30 mb-3">
                 Waiting for organizer to close submissions and trigger AI curation.
               </p>
               <button type="button" className="btn btn-ghost" onClick={() => refetchAll()}>
@@ -652,7 +660,7 @@ export default function OnchainGame() {
                 >
                   {busy === "mint" ? "Minting…" : "Mint Bingo Card NFT"}
                 </button>
-                <p className="text-xs text-cream/30">
+                <p className="text-sm text-cream/30">
                   Token ID is assigned on-chain · tile order randomised from your address
                 </p>
               </div>
@@ -745,7 +753,7 @@ export default function OnchainGame() {
                 <div className="mb-4 pb-4 border-b border-gold/15">
                   <button
                     type="button"
-                    className="text-xs text-cream/30 hover:text-cream/60 underline block mb-3"
+                    className="text-sm text-cream/30 hover:text-cream/60 underline block mb-3"
                     onClick={() => setSelectedWord(null)}
                   >
                     ✕ close detail
@@ -771,7 +779,7 @@ export default function OnchainGame() {
                     ))}
                   </div>
                   <div className="flex gap-2 items-center mb-3">
-                    <label className="kicker text-xs">Amount (MNT)</label>
+                    <label className="kicker text-sm">Amount (MNT)</label>
                     <input
                       type="number" step="0.001" min="0.001"
                       className="input-dark flex-1 text-sm text-center py-1"
@@ -790,7 +798,7 @@ export default function OnchainGame() {
                     {mySharesNum(selectedWord) > 0 && (
                       <button
                         type="button" className="btn btn-blood"
-                        style={{ fontSize: "0.62rem" }}
+                        style={{ fontSize: "0.74rem" }}
                         onClick={() => {
                           const r = myShares?.[selectedWord]?.result;
                           if (r) sell(selectedWord, r as bigint);
@@ -824,9 +832,9 @@ export default function OnchainGame() {
                           className="w-full rounded-lg border border-gold/10 bg-black/20 px-3 py-2 hover:border-gold/35 transition text-left"
                         >
                           <div className="flex items-center justify-between mb-1">
-                            <span className="text-xs font-bold text-cream truncate">{wordLabel(w)}</span>
+                            <span className="text-sm font-bold text-cream truncate">{wordLabel(w)}</span>
                             <div className="text-right shrink-0 ml-2">
-                              <span className="text-xs font-bold" style={{ color: isUp ? "#2be3d4" : "#e07a4a" }}>
+                              <span className="text-sm font-bold" style={{ color: isUp ? "#2be3d4" : "#e07a4a" }}>
                                 {fmt(cur)} MNT
                               </span>
                               <span className="text-[12px] ml-1" style={{ color: isUp ? "#2be3d4" : "#e07a4a" }}>
@@ -845,7 +853,7 @@ export default function OnchainGame() {
               <div className="mt-5 border-t border-gold/15 pt-4 space-y-1.5">
                 <div className="stat-row"><dt>Redeemable</dt><dd>{redeemable ? `${fmt(+formatEther(redeemable as bigint))} MNT` : "—"}</dd></div>
               </div>
-              <p className="text-xs text-cream/30 mt-3 text-center">
+              <p className="text-sm text-cream/30 mt-3 text-center">
                 Organizer locks the market when the event starts.
               </p>
             </div>
@@ -895,7 +903,7 @@ export default function OnchainGame() {
             <div className="game-panel">
               <div className="flex items-center justify-between gap-2 mb-4">
                 <h2 className="step-title text-sm">AI Oracle — Live</h2>
-                <button type="button" className="btn btn-ghost py-1 text-xs" onClick={() => refetchAll()}>
+                <button type="button" className="btn btn-ghost py-1 text-sm" onClick={() => refetchAll()}>
                   Refresh
                 </button>
               </div>
@@ -925,18 +933,18 @@ export default function OnchainGame() {
                       const hit = isMarked(i);
                       if (!hit) return null;
                       return (
-                        <span key={i} className="rounded border border-teal-700/50 bg-teal-950/30 px-2 py-0.5 text-xs text-teal-300">
+                        <span key={i} className="rounded border border-teal-700/50 bg-teal-950/30 px-2 py-0.5 text-sm text-teal-300">
                           {wordLabel(cellWordIdx)} ✓
                         </span>
                       );
                     })}
                     {!cells.some((_, i) => isMarked(i)) && (
-                      <p className="text-xs text-cream/30 animate-pulse">Waiting for first oracle validation…</p>
+                      <p className="text-sm text-cream/30 animate-pulse">Waiting for first oracle validation…</p>
                     )}
                   </div>
                 </div>
               )}
-              <p className="text-xs text-cream/30 mt-6">
+              <p className="text-sm text-cream/30 mt-6">
                 Event ends when the organizer closes it on-chain. Dispute period follows.
               </p>
             </div>
@@ -990,7 +998,7 @@ export default function OnchainGame() {
               </button>
 
               {contractPhase === "Dispute" && (
-                <p className="text-xs text-amber-400/70 mt-3 text-center">
+                <p className="text-sm text-amber-400/70 mt-3 text-center">
                   Dispute period active. Claims open after it ends.
                 </p>
               )}
@@ -999,12 +1007,12 @@ export default function OnchainGame() {
                 className="mt-5 rounded-lg border px-4 py-3"
                 style={{ borderColor: "rgba(217,164,65,0.2)", background: "rgba(0,0,0,0.3)" }}
               >
-                <p className="step-title text-xs mb-2" style={{ color: "#e8c66b" }}>✦ Trustless by Design</p>
-                <p className="step-desc text-xs leading-relaxed mb-2">
+                <p className="step-title text-sm mb-2" style={{ color: "#e8c66b" }}>✦ Trustless by Design</p>
+                <p className="step-desc text-sm leading-relaxed mb-2">
                   Oracle verdicts are committed on-chain — no admin override possible after event start.
                   Stakes on unspoken words are forfeited into the prize pool and paid out to correct predictors.
                 </p>
-                <p className="step-desc text-xs leading-relaxed">
+                <p className="step-desc text-sm leading-relaxed">
                   <strong style={{ color: "#cdbb96" }}>AI risk:</strong>{" "}
                   Whisper may miss words in poor audio. Resolution sources are agreed on-chain before any stake is placed.
                 </p>
