@@ -87,6 +87,52 @@ Search for **"Bingocle"** in the Minds Bazaar (Skill ID `AD1A503E-F36B-1410-8464
 
 ---
 
+## If Something Doesn't Work — Read This First
+
+These are the known behaviors you might encounter when trying the live demo. All are by design or expected trade-offs of a hackathon deployment.
+
+**Telegram bot doesn't understand my message**
+> The bot uses Gemini `gemini-2.5-flash` for natural-language understanding. Under high demand or free-tier rate limits, Gemini may return a 429 error and the NL layer silently falls back. If plain English doesn't get a response, use explicit commands instead — they work without Gemini:
+> ```
+> /start          → register + create demo wallet
+> /help           → full command list
+> /wallet         → show wallet address + balance
+> /card           → show your bingo card
+> /event          → current event status
+> ```
+
+**Bot is offline / not responding at all**
+> The bot runs on Railway's free tier (500 hrs/month). If the service has exhausted its quota for the month, it may be sleeping. The web app at `https://bingocle.vercel.app/play` gives the full game experience with no external dependency — use `/play` (demo mode) to see the complete loop, or `/app` for real on-chain play.
+
+**I can't mint a card on `/app` — button is greyed out**
+> Minting is only available during the **Market phase** of an event. Each event goes through phases: Submission → Founder → Market → Live → Settled. If the current event is in Live or Settled phase, wait for the next event or try `/play` (demo mode) which lets you experience the full loop instantly.
+
+**Tiles aren't lighting up on `/app` during the Live phase**
+> The oracle is triggered manually by the organizer when an event goes Live (auto-trigger is on the roadmap). Verdicts committed on-chain are visible at [OracleRegistry txs](https://sepolia.mantlescan.xyz/txs?a=0xe998c6F467876b2dA1C5D126EA5576A6943c2073). If no new tiles light up, the oracle run for this event may not have happened yet.
+
+**I need MNT to use `/app` but my wallet is empty**
+> Get free Mantle Sepolia testnet MNT from the faucet: https://faucet.sepolia.mantle.xyz/ — paste your MetaMask address, wait ~30s, then retry.
+
+**"Mint" button works but then says I already have a card**
+> Each wallet can only mint one bingo card per event. If you already minted for this event, your card is already on-chain — scroll down to see it, or click "Show My Card".
+
+**MetaMask shows "nonce too low" or transaction keeps pending**
+> Open MetaMask → Settings → Advanced → "Clear activity and nonce data". This resets the local nonce cache without touching your funds.
+
+**WalletConnect QR doesn't work**
+> The WalletConnect project ID is a placeholder. Browser-extension wallets (MetaMask, Rabby) work fully — connect via the injected wallet option.
+
+**The web app shows word labels like `#0`, `#1` instead of real words**
+> This means the frontend couldn't reach the agent service to fetch word labels. The agent is hosted at `https://bingocle-production.up.railway.app` — if it's temporarily down (Railway cold start takes ~10s), reload the page after a few seconds.
+
+**The oracle ran but only a few tiles lit up, not all the words I expected**
+> The oracle uses Gemini to match words spoken in the transcript against the event's word pool. Only words that appear clearly in the transcript with confidence ≥ 0.6 get committed. This is intentional — the oracle doesn't guess; it only marks what it heard with high confidence.
+
+**`/play` looks identical to `/app` — what's the difference?**
+> `/play` is a fully browser-side simulation — no wallet, no gas, no real contracts. It's there so anyone can feel the complete game loop instantly. `/app` makes real on-chain transactions on Mantle Sepolia: minting the NFT card, buying word positions, and claiming rewards all hit the deployed contracts and cost testnet MNT.
+
+---
+
 ## Deployed Contract Addresses (Mantle Sepolia)
 
 Network: Mantle Sepolia (chainId 5003)
