@@ -1,6 +1,6 @@
 import Link from "next/link";
 import Reveal from "./Reveal";
-import { FrameCorners, Gear, Sparks, type SparkSpec } from "./ornaments";
+import { ArrowOrb, FrameCorners, Gear, Sparks, type SparkSpec } from "./ornaments";
 
 const STEPS = [
   {
@@ -96,6 +96,15 @@ export default function HowToPlay() {
               the event, watch the oracle validate live on Mantle, then claim
               your winnings — trustlessly.
             </p>
+            <a
+              href={process.env.NEXT_PUBLIC_DOCS_URL ?? "https://bingocle-doc.vercel.app"}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="link-arrow mt-8"
+            >
+              <ArrowOrb />
+              Need more details? Read the docs
+            </a>
           </div>
           </Reveal>
 
