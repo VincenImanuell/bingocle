@@ -361,7 +361,13 @@ export default function OnchainGame() {
     <div className="app-bg">
       <header className="topbar">
         <div className="mx-auto flex h-11 max-w-6xl items-center justify-between gap-4 px-4">
-          <Link href="/" className="wordmark text-lg">Bingocle</Link>
+          <button
+            type="button"
+            onClick={() => { setEventId(0); setRecord(null); setSelectedWord(null); }}
+            className="wordmark text-lg"
+          >
+            Bingocle
+          </button>
           {eventId > 0 ? (
             <nav aria-label="Game phase" className="hidden items-center gap-1.5 lg:flex">
               {PHASE_STEPS.map((p, i) => (
