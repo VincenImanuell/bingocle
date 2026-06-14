@@ -47,7 +47,7 @@ export default function Hero() {
           <Sparks items={HERO_SPARKS} />
           <Canopy />
 
-          <div className="relative z-10 mx-auto grid max-w-6xl items-center gap-12 px-6 pb-16 pt-24 sm:px-10 sm:pt-28 lg:grid-cols-[1.05fr_0.95fr] lg:gap-10 lg:pb-20 lg:pt-32">
+          <div className="relative z-10 mx-auto grid min-h-[calc(100vh-6rem)] max-w-6xl items-center gap-12 px-6 pb-16 pt-24 sm:px-10 sm:pt-28 lg:grid-cols-[1.05fr_0.95fr] lg:gap-10 lg:pb-20 lg:pt-32">
             {/* ── left: title block ── */}
             <div className="text-center lg:text-left">
               <Reveal>
@@ -56,7 +56,7 @@ export default function Hero() {
                 </h1>
               </Reveal>
               <Reveal delay={120}>
-                <p className="tagline-caps mt-4 text-[0.6rem] sm:text-xs">
+                <p className="tagline-caps mt-4 text-[0.72rem] sm:text-sm">
                   Community-Driven Bingo Card Game
                 </p>
               </Reveal>

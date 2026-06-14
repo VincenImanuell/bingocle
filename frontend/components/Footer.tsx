@@ -22,7 +22,7 @@ export default function Footer() {
         {/* ── left: wordmark ── */}
         <div className="text-center md:text-left">
           <p className="wordmark text-3xl sm:text-4xl">Bingocle</p>
-          <p className="tagline-caps mt-3 text-[0.55rem]">
+          <p className="tagline-caps mt-3 text-[0.68rem]">
             Community-Driven Bingo Card Game
           </p>
         </div>

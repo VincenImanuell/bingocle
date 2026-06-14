@@ -14,7 +14,7 @@ export function PriceChart({
   if (history.length < 2) {
     return (
       <div style={{ height }} className="flex items-center justify-center">
-        <span className="text-[9px] text-cream/20">collecting…</span>
+        <span className="text-[11px] text-cream/20">collecting…</span>
       </div>
     );
   }

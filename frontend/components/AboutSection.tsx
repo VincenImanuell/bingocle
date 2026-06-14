@@ -74,7 +74,7 @@ export default function AboutSection() {
               0.25
             </span>
             <p
-              className="absolute inset-x-3 bottom-11 z-[3] text-center font-body text-[0.66rem] italic leading-snug"
+              className="absolute inset-x-3 bottom-11 z-[3] text-center font-body text-[0.76rem] italic leading-snug"
               style={{ color: "#cdbb96" }}
             >
               If the crowd hears it spoken, every believer is rewarded.

@@ -559,7 +559,7 @@ export default function DemoGame() {
                     }`}
                   >
                     <span
-                      className={`shrink-0 h-5 w-5 rounded-full flex items-center justify-center text-[10px] font-bold border ${
+                      className={`shrink-0 h-5 w-5 rounded-full flex items-center justify-center text-[11px] font-bold border ${
                         i < createStep && step.includes("✓")
                           ? "bg-teal-950 text-teal-300 border-teal-700"
                           : i < createStep
@@ -784,7 +784,7 @@ export default function DemoGame() {
                           <button
                             type="button"
                             onClick={() => cancelIpoBid(b.id)}
-                            className="text-[10px] text-cream/30 hover:text-cream/70 transition underline shrink-0"
+                            className="text-[11px] text-cream/30 hover:text-cream/70 transition underline shrink-0"
                           >
                             cancel
                           </button>
@@ -1057,7 +1057,7 @@ export default function DemoGame() {
                     <h2 className="step-title text-sm">Word Market — Live Prices</h2>
                     {priceFlash && (
                       <span
-                        className="text-[10px] font-mono animate-pulse"
+                        className="text-[11px] font-mono animate-pulse"
                         style={{ color: "rgba(43,227,212,0.6)" }}
                       >
                         {priceFlash}
@@ -1169,7 +1169,7 @@ export default function DemoGame() {
                                 <span className="text-xs font-bold text-cream truncate">
                                   {w.word}
                                   {founderSeeds.has(w.word) && (
-                                    <span className="ml-1 text-gold text-[9px]">✦</span>
+                                    <span className="ml-1 text-gold text-[11px]">✦</span>
                                   )}
                                 </span>
                                 <div className="text-right shrink-0 ml-2">
@@ -1180,7 +1180,7 @@ export default function DemoGame() {
                                     {fmt(cur)}
                                   </span>
                                   <span
-                                    className="text-[9px] ml-1"
+                                    className="text-[11px] ml-1"
                                     style={{ color: isUp ? "#7ecdc7" : "#e07a4a" }}
                                   >
                                     {isUp ? "+" : ""}

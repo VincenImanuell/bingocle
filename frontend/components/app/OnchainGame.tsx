@@ -829,7 +829,7 @@ export default function OnchainGame() {
                               <span className="text-xs font-bold" style={{ color: isUp ? "#2be3d4" : "#e07a4a" }}>
                                 {fmt(cur)} MNT
                               </span>
-                              <span className="text-[11px] ml-1" style={{ color: isUp ? "#2be3d4" : "#e07a4a" }}>
+                              <span className="text-[12px] ml-1" style={{ color: isUp ? "#2be3d4" : "#e07a4a" }}>
                                 {isUp ? "+" : ""}{pct.toFixed(1)}%
                               </span>
                             </div>
