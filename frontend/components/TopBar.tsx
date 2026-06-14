@@ -16,10 +16,10 @@ const NAV_ITEMS = [
 export default function TopBar() {
   return (
     <header className="topbar">
-      <div className="mx-auto flex min-h-9 max-w-6xl flex-wrap items-center justify-between gap-x-4 gap-y-2 px-4 py-1.5">
+      <div className="mx-auto flex min-h-9 max-w-6xl flex-wrap items-center gap-x-4 gap-y-2 px-4 py-1.5">
         <nav
           aria-label="Utility"
-          className="flex min-w-0 flex-1 flex-wrap items-center gap-x-3 gap-y-1.5 sm:gap-x-4"
+          className="flex flex-nowrap items-center gap-x-3 sm:gap-x-4"
         >
           {NAV_ITEMS.map((item, i) => (
             <span
@@ -45,7 +45,7 @@ export default function TopBar() {
             </span>
           ))}
         </nav>
-        <div className="flex shrink-0 items-center gap-2">
+        <div className="ml-auto flex shrink-0 items-center gap-2">
           <Link href="/app" className="btn btn-blood inline-flex">
             Launch App
           </Link>
