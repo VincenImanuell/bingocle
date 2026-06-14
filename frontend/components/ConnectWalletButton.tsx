@@ -88,7 +88,7 @@ export default function ConnectWalletButton() {
                   }}
                 />
                 <span style={{ fontSize: "0.58rem", color: "#9c8a64", whiteSpace: "nowrap" }}>
-                  {chain.name.replace(/\s*testnet$/i, "")}
+                  {chain.name?.replace(/\s*testnet$/i, "")}
                 </span>
               </button>
             )}
