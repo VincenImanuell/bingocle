@@ -46,7 +46,7 @@ export default function TopBar() {
           ))}
         </nav>
         <div className="flex shrink-0 items-center gap-2">
-          <Link href="/app" className="btn btn-blood hidden md:inline-flex">
+          <Link href="/app" className="btn btn-blood inline-flex">
             Launch App
           </Link>
           <ConnectWalletButton />
