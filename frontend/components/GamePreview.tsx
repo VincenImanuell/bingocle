@@ -49,12 +49,12 @@ export default function GamePreview() {
         {/* ── header copy ── */}
         <Reveal>
         <div className="mx-auto mb-10 max-w-xl text-center">
-          <p className="kicker">Every session, a new card</p>
+          <p className="kicker">Every event, a new card</p>
           <h2 className="h-display mt-3 text-3xl sm:text-4xl">
             Live <span className="gold">Bingo Board</span>
           </h2>
           <p className="body-copy mt-4 text-base">
-            A dynamic card filled with community-submitted words. Every session
+            A dynamic card filled with community-submitted words. Every event
             is different because the crowd shapes the game.
           </p>
         </div>

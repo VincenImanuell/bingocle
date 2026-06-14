@@ -79,7 +79,7 @@ export default function Hero() {
                   </a>
                   <a href="#about" className="link-arrow">
                     <ArrowOrb />
-                    Explore the Game
+                    What is Bingocle
                   </a>
                 </div>
               </Reveal>
@@ -117,13 +117,13 @@ export default function Hero() {
                 </div>
                 <span className="gcard-nameplate">Bingocle</span>
                 <div className="absolute inset-0 z-[3] flex flex-col items-center justify-center gap-3 pt-6">
-                  <Link href="/play" className="play-btn" aria-label="Play the live market">
+                  <Link href="/play" className="play-btn" aria-label="Play the demo game">
                     <span className="tri" aria-hidden="true" />
                   </Link>
                   <span className="watch-label text-center leading-relaxed">
-                    Trade
+                    Play Demo
                     <br />
-                    Live
+                    Game
                   </span>
                 </div>
                 </div>

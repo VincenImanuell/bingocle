@@ -1,6 +1,6 @@
 import Link from "next/link";
 import Reveal from "./Reveal";
-import { ArrowOrb, FrameCorners, Gear, Sparks, type SparkSpec } from "./ornaments";
+import { FrameCorners, Gear, Sparks, type SparkSpec } from "./ornaments";
 
 const STEPS = [
   {
@@ -96,10 +96,6 @@ export default function HowToPlay() {
               the event, watch the oracle validate live on Mantle, then claim
               your winnings — trustlessly.
             </p>
-            <a href="#game-preview" className="link-arrow mt-8">
-              <ArrowOrb />
-              Check the Game Flow
-            </a>
           </div>
           </Reveal>
 
@@ -120,10 +116,10 @@ export default function HowToPlay() {
                     "radial-gradient(60% 60% at 50% 50%, rgba(2, 10, 9, 0.25), rgba(2, 10, 9, 0.78))",
                 }}
               >
-                <Link href="/play" className="play-btn" aria-label="Trade live on Mantle">
+                <Link href="/play" className="play-btn" aria-label="Play the demo game">
                   <span className="tri" aria-hidden="true" />
                 </Link>
-                <span className="watch-label">Trade Live</span>
+                <span className="watch-label">Play Demo</span>
               </div>
             </div>
           </div>

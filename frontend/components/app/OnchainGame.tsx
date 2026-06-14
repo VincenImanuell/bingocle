@@ -1006,7 +1006,13 @@ export default function OnchainGame() {
             </div>
 
             <div className="text-center">
-              <Link href="/" className="btn btn-ghost">← Back Home</Link>
+              <button
+                type="button"
+                className="btn btn-ghost"
+                onClick={() => { setEventId(0); setRecord(null); setSelectedWord(null); }}
+              >
+                ← Back Home
+              </button>
             </div>
           </div>
         )}

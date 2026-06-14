@@ -44,6 +44,26 @@ html {
   scroll-padding-top: 3rem;
 }
 
+/* Lenis smooth-scroll (landing page) — disables native smoothing so
+   Lenis owns the wheel inertia; inner scroll areas opt out with
+   data-lenis-prevent. */
+html.lenis,
+html.lenis body {
+  height: auto;
+}
+.lenis.lenis-smooth {
+  scroll-behavior: auto !important;
+}
+.lenis.lenis-smooth [data-lenis-prevent] {
+  overscroll-behavior: contain;
+}
+.lenis.lenis-stopped {
+  overflow: hidden;
+}
+.lenis.lenis-smooth iframe {
+  pointer-events: none;
+}
+
 body {
   background: #050505;
   color: var(--color-cream);
@@ -1774,10 +1794,10 @@ body {
 @media (scripting: enabled) and (prefers-reduced-motion: no-preference) {
   .reveal {
     opacity: 0;
-    transform: translateY(26px);
+    transform: translateY(44px);
     transition:
-      opacity 0.8s ease,
-      transform 0.8s cubic-bezier(0.22, 1, 0.36, 1);
+      opacity 0.7s ease,
+      transform 0.9s cubic-bezier(0.22, 1, 0.36, 1);
     /* safety net: if hydration never happens, reveal anyway */
     animation: reveal-safety 0.8s ease 4s forwards;
   }

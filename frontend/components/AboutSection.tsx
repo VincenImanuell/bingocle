@@ -101,7 +101,12 @@ export default function AboutSection() {
             in real time — validating every word on-chain via an ERC-8004 agent
             identity. No admin marks words. Settlement is trustless on Mantle.
           </p>
-          <a href="#how-to-play" className="link-arrow mt-8">
+          <a
+            href={process.env.NEXT_PUBLIC_DOCS_URL ?? "https://bingocle-doc.vercel.app"}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="link-arrow mt-8"
+          >
             <ArrowOrb />
             Learn more about Bingocle
           </a>

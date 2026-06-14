@@ -1,3 +1,4 @@
+import SmoothScroll from "@/components/SmoothScroll";
 import TopBar from "@/components/TopBar";
 import Hero from "@/components/Hero";
 import AboutSection from "@/components/AboutSection";
@@ -9,6 +10,7 @@ import Footer from "@/components/Footer";
 export default function Home() {
   return (
     <>
+      <SmoothScroll />
       <div className="bg-noise" aria-hidden="true" />
       <TopBar />
       <Hero />
