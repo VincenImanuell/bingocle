@@ -438,10 +438,9 @@ body {
   white-space: nowrap;
   cursor: pointer;
   position: relative;
-  /* enlarge the tap target without shifting layout */
   display: inline-block;
-  padding: 0.45rem 0.2rem;
-  margin: -0.45rem -0.2rem;
+  padding: 0.28rem 0.25rem;
+  margin: 0;
   transition:
     color 0.2s ease,
     text-shadow 0.2s ease;
