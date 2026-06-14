@@ -1,13 +1,16 @@
 import Link from "next/link";
 import ConnectWalletButton from "./ConnectWalletButton";
 
+const DOCS_URL =
+  process.env.NEXT_PUBLIC_DOCS_URL ?? "https://bingocle-doc.vercel.app";
+
 const NAV_ITEMS = [
   { label: "Home", href: "#home" },
   { label: "About", href: "#about" },
   { label: "How It Works", href: "#how-to-play", desktopOnly: true },
   { label: "Game Flow", href: "#game-preview", desktopOnly: true },
   { label: "Community", href: "#beta", desktopOnly: true },
-  { label: "Docs", href: "#footer", desktopOnly: true },
+  { label: "Docs", href: DOCS_URL, desktopOnly: true, external: true },
 ];
 
 export default function TopBar() {
@@ -30,7 +33,13 @@ export default function TopBar() {
                   ✦
                 </span>
               )}
-              <a className="topbar-link" href={item.href}>
+              <a
+                className="topbar-link"
+                href={item.href}
+                {...(item.external
+                  ? { target: "_blank", rel: "noopener noreferrer" }
+                  : {})}
+              >
                 {item.label}
               </a>
             </span>
