@@ -21,28 +21,17 @@ export default function TopBar() {
           aria-label="Utility"
           className="flex flex-nowrap items-center gap-x-3 sm:gap-x-4"
         >
-          {NAV_ITEMS.map((item, i) => (
-            <span
+          {NAV_ITEMS.map((item) => (
+            <a
               key={item.label}
-              className={`flex items-center gap-2 sm:gap-4${
-                item.desktopOnly ? " max-sm:hidden" : ""
-              }`}
+              className={`topbar-link${item.desktopOnly ? " max-sm:hidden" : ""}`}
+              href={item.href}
+              {...(item.external
+                ? { target: "_blank", rel: "noopener noreferrer" }
+                : {})}
             >
-              {i > 0 && (
-                <span className="nav-dot hidden sm:inline" aria-hidden="true">
-                  ✦
-                </span>
-              )}
-              <a
-                className="topbar-link"
-                href={item.href}
-                {...(item.external
-                  ? { target: "_blank", rel: "noopener noreferrer" }
-                  : {})}
-              >
-                {item.label}
-              </a>
-            </span>
+              {item.label}
+            </a>
           ))}
         </nav>
         <div className="ml-auto flex shrink-0 items-center gap-2">
