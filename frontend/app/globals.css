@@ -64,6 +64,25 @@ html.lenis body {
   pointer-events: none;
 }
 
+/* While Lenis is actively scrolling, pause the repaint-heavy ambient
+   animations (pulsing box-shadows, brightness filters) so they don't
+   fight the scroll transform and stutter. They resume the instant the
+   scroll settles — visuals are unchanged at rest. */
+html.lenis-scrolling .bingo-tile.hit,
+html.lenis-scrolling .bingo-tile.free,
+html.lenis-scrolling .turn-badge,
+html.lenis-scrolling .word-orb,
+html.lenis-scrolling .mc-orb,
+html.lenis-scrolling .card-bob,
+html.lenis-scrolling .mini-bob,
+html.lenis-scrolling .fan-sway,
+html.lenis-scrolling .hero-smoke,
+html.lenis-scrolling .spark,
+html.lenis-scrolling .lantern,
+html.lenis-scrolling .gear-spin {
+  animation-play-state: paused;
+}
+
 body {
   background: #050505;
   color: var(--color-cream);
