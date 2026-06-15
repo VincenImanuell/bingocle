@@ -9,7 +9,7 @@
 - **Hackathon:** The Turing Test Hackathon 2026 (Phase II — AI Awakening) · Mantle Network
 - **Track:** Consumer & Viral DApps — Track 04 (Animoca Minds · Animoca Brands · OpenCheck)
 - **Status:** ✅ Deployed — 7 verified contracts on Mantle Sepolia, live web app, hosted agent + bot, Minds Bazaar skill published
-- **Live app:** https://bingocle.vercel.app
+- **Live app:** https://bingocle-play.vercel.app
 - **Docs:** https://bingocle-doc.vercel.app
 - **Telegram bot:** [@Bingocle_teleBot](https://t.me/Bingocle_teleBot)
 
@@ -29,7 +29,7 @@ No admin marks words by hand. No black box. Every AI decision is recorded on-cha
 
 ### Option 1 — Web App (no wallet needed to start)
 
-**https://bingocle.vercel.app**
+**https://bingocle-play.vercel.app**
 
 | Route | What you get |
 |---|---|
@@ -69,7 +69,7 @@ Search for **"Bingocle"** in the Minds Bazaar (Skill ID `AD1A503E-F36B-1410-8464
 | AI Validation Oracle | ✅ Live | Gemini matches transcript words → `commitValidation` on-chain |
 | Agent Service | ✅ Hosted | https://bingocle-production.up.railway.app |
 | Telegram Bot | ✅ Hosted | @Bingocle_teleBot — NL commands + demo wallets working |
-| Web App | ✅ Live | https://bingocle.vercel.app (`/play` demo + `/app` on-chain) |
+| Web App | ✅ Live | https://bingocle-play.vercel.app (`/play` demo + `/app` on-chain) |
 | Docs Site | ✅ Live | https://bingocle-doc.vercel.app |
 | Minds Bazaar Skill | ✅ Published + Listed | Skill ID `AD1A503E-F36B-1410-8464-00039CE7DF11`, slug `bingocle-skill` |
 | Live On-chain Event | ✅ Exists | eventCount > 0, playable on `/app` right now |
@@ -102,7 +102,7 @@ These are the known behaviors you might encounter when trying the live demo. All
 > ```
 
 **Bot is offline / not responding at all**
-> The bot runs on Railway's free tier (500 hrs/month). If the service has exhausted its quota for the month, it may be sleeping. The web app at `https://bingocle.vercel.app/play` gives the full game experience with no external dependency — use `/play` (demo mode) to see the complete loop, or `/app` for real on-chain play.
+> The bot runs on Railway's free tier (500 hrs/month). If the service has exhausted its quota for the month, it may be sleeping. The web app at `https://bingocle.vercel.app/play` gives the full game experience with no external dependency — use `https://bingocle-play.vercel.app/play` (demo mode) to see the complete loop, or `/app` for real on-chain play.
 
 **I can't mint a card on `/app` — button is greyed out**
 > Minting is only available during the **Market phase** of an event. Each event goes through phases: Submission → Founder → Market → Live → Settled. If the current event is in Live or Settled phase, wait for the next event or try `/play` (demo mode) which lets you experience the full loop instantly.
